@@ -29,7 +29,7 @@
         "executor": "@nx/js:prune-lockfile",
         "outputs": [
           "{workspaceRoot}/apps/agent/dist/package.json",
-          "{workspaceRoot}/apps/agent/dist/package-lock.json"
+          "{workspaceRoot}/apps/agent/dist/pnpm-lock.yaml"
         ],
         "options": {
           "buildTarget": "build"
@@ -78,7 +78,7 @@
     }
   },
   "dependencies": {
-    "@ai-agent/common": "*",
+    "@ai-agent/common": "workspace:*",
     "@langchain/core": "^1.2.3",
     "@langchain/openai": "^1.5.5",
     "@langchain/tavily": "^1.2.0",

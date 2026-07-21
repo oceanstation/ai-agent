@@ -36,6 +36,13 @@ yarn-error.log
 testem.log
 /typings
 
+# npm (legacy, kept for safety)
+package-lock.json
+
+# pnpm
+.pnpm-store/
+.pnpm-debug.log*
+
 # System Files
 .DS_Store
 Thumbs.db

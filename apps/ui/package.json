@@ -1,5 +1,31 @@
 {
   "name": "@ai-agent/ui",
   "version": "0.0.1",
-  "private": true
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ai-agent/common": "workspace:*",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@shikijs/markdown-it": "^4.3.1",
+    "dompurify": "^3.2.5",
+    "markdown-it": "^14.3.0",
+    "shiki": "^4.3.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0",
+    "vue3-json-viewer": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/markdown-it": "^14.1.2",
+    "@typescript-eslint/parser": "^8.58.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vitest/coverage-v8": "~4.1.0",
+    "@vue/test-utils": "^2.4.6",
+    "eslint-plugin-vue": "^9.16.1",
+    "jsdom": "^27.1.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.0",
+    "vitest": "~4.1.0",
+    "vue-tsc": "^2.2.8"
+  }
 }

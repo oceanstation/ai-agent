@@ -153,7 +153,7 @@ const sendMessage = async () => {
   try {
     isLoading.value = true;
 
-    await fetchEventSource(`/agent/invoke/stream?message=${userMessage}`, {
+    await fetchEventSource(`/agent/invoke?message=${userMessage}`, {
       onmessage(event) {
         if (!event.data) return;
 

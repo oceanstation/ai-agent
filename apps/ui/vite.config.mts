@@ -15,15 +15,7 @@ export default defineConfig(() => ({
     port: 4200,
     host: 'localhost',
     proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
       '/agent': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-      '/chroma': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },

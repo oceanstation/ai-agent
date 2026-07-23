@@ -120,6 +120,7 @@ import ToolBlock from '@/components/ToolBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { computed, onMounted, ref, type Component } from 'vue';
+import { formatSearchHits } from '@/utils/searchHighlight';
 
 /** 后端 HistoryMessage 的最小契约（与 apps/agent/.../history.types.ts 对齐） */
 interface HistoryMessageDTO {
@@ -440,22 +441,10 @@ const searchKnowledgeBase = async (query: string) => {
       return;
     }
     const hits = (await resp.json()) as HistorySearchHitDTO[];
-    if (!hits.length) {
-      pushAssistantBlock({
-        type: 'text',
-        text: `未在当前会话知识库中命中「${query}」。`,
-      });
-      return;
-    }
-
-    // 用 markdown 汇总命中片段；snippet 内的 <mark> 标签会被 MarkdownBlock 原样渲染
-    const lines = hits.map((hit, idx) => {
-      const time = new Date(hit.createdAt).toLocaleString();
-      return `**${idx + 1}. [${hit.role}] · ${time}**\n\n> ${hit.snippet}`;
-    });
+    // 命中格式化 / 高亮 / 折叠块渲染均下沉到公共方法，见 utils/searchHighlight.ts
     pushAssistantBlock({
       type: 'text',
-      text: `🔎 知识库命中 ${hits.length} 条：\n\n${lines.join('\n\n')}`,
+      text: formatSearchHits(hits, query),
     });
   } catch (err) {
     console.error('知识库检索异常:', err);

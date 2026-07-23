@@ -59,6 +59,7 @@ defineProps<{
   align-items: center;
   gap: 3px;
   color: #666;
+  border-radius: 4px;
 }
 
 .list-number {

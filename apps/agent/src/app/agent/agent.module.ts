@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
 import { MemoryModule } from './memory/memory.module';
+import { HistoryModule } from './history/history.module';
 
 @Module({
-  imports: [MemoryModule],
+  imports: [MemoryModule, HistoryModule],
   controllers: [AgentController],
   providers: [AgentService],
   exports: [AgentService],

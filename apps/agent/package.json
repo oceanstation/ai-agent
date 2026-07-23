@@ -64,7 +64,10 @@
         ],
         "options": {
           "buildTarget": "@ai-agent/agent:build",
-          "runBuildTargetDependencies": false
+          "runBuildTargetDependencies": false,
+          "runtimeArgs": [
+            "--experimental-sqlite"
+          ]
         },
         "configurations": {
           "development": {

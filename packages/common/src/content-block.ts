@@ -46,13 +46,24 @@ export interface DoneBlock {
   type: 'done';
 }
 
+/**
+ * 会话元信息（SSE 首帧下发）。
+ * 后端在 `/agent/invoke` 的第一帧下发 `{ type: 'session', id }`，
+ * 前端据此把 sessionId 持久化到 localStorage，后续请求带上以延续多轮对话。
+ */
+export interface SessionBlock {
+  type: 'session';
+  id: string;
+}
+
 /** 所有 ContentBlock 变体的联合类型，前后端共同消费 */
 export type ContentBlock =
   | TextBlock
   | ListBlock
   | JsonBlock
   | ToolUseBlock
-  | DoneBlock;
+  | DoneBlock
+  | SessionBlock;
 
 /** ContentBlock 的所有可能 `type` 字面量 */
 export type ContentBlockType = ContentBlock['type'];

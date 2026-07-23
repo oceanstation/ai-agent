@@ -1,25 +1,55 @@
-import { Controller, Query, Sse } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpException,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Sse,
+} from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentService } from './agent.service';
 import type { AgentInvokeResult } from './agent.types';
 import { messagesToBlocks, type ContentBlock } from './agent.blocks';
+import { HistoryService } from './history/history.service';
+import type { HistoryMessage, HistorySession } from './history/history.types';
 
 @Controller('agent')
 export class AgentController {
-  constructor(private readonly agentService: AgentService) {}
+  constructor(
+    private readonly agentService: AgentService,
+    private readonly historyService: HistoryService,
+  ) {}
 
   /**
    * 流式调用 DeepAgent（SSE）—— Content Block 协议
-   * GET /agent/invoke?message=...
+   * GET /agent/invoke?message=...&sessionId=...
    *
-   * 每条 SSE data 都是一个 ContentBlock，对齐 OpenAI / Anthropic Messages API 风格：
-   *   { type: 'text'     | 'list' | 'json' | 'tool_use' | 'done', ... }
+   * - `sessionId` 可选：前端负责维护；未传时会自动新建一个 session，
+   *   sessionId 通过首帧 `{ type: 'session', id }` 下发给前端持久化。
+   * - 每条 SSE data 都是一个 ContentBlock，对齐 OpenAI / Anthropic Messages API 风格。
    */
   @Sse('invoke')
-  stream(@Query('message') message: string): Observable<MessageEvent> {
+  stream(
+    @Query('message') message: string,
+    @Query('sessionId') sessionIdInput?: string,
+  ): Observable<MessageEvent> {
+    // 归一化 sessionId：前端传了就复用（校验存在性），否则新建
+    const sessionId =
+      sessionIdInput && this.historyService.hasSession(sessionIdInput)
+        ? sessionIdInput
+        : this.historyService.createSession().id;
+
     return new Observable<MessageEvent>((subscriber) => {
       let cancelled = false;
+
+      // 首帧下发 session 元信息，前端据此持久化（例如写入 localStorage）
+      subscriber.next({
+        data: { type: 'session', id: sessionId } satisfies ContentBlock,
+      });
 
       void (async () => {
         try {
@@ -29,7 +59,7 @@ export class AgentController {
           let emittedBlockCount = 0;
 
           const iterator: AsyncIterable<AgentInvokeResult> =
-            this.agentService.stream(message);
+            this.agentService.stream({ message, sessionId });
 
           for await (const chunk of iterator) {
             if (cancelled) break;
@@ -58,5 +88,45 @@ export class AgentController {
         cancelled = true;
       };
     });
+  }
+
+  // ===================== 会话历史 REST 接口 =====================
+
+  /**
+   * 新建一个空会话；前端"新建对话"按钮直接调用。
+   * 之所以单独提供而非在 invoke 中懒建：允许前端在真正发出消息之前拿到 sessionId
+   * 用于路由跳转、URL 记录等交互。
+   */
+  @Post('sessions')
+  createSession(): HistorySession {
+    return this.historyService.createSession();
+  }
+
+  /** 列出所有历史会话，按最近活跃时间倒序 */
+  @Get('sessions')
+  listSessions(@Query('limit') limitRaw?: string): HistorySession[] {
+    const limit = limitRaw ? Number.parseInt(limitRaw, 10) : 100;
+    return this.historyService.listSessions(
+      Number.isFinite(limit) && limit > 0 ? limit : 100,
+    );
+  }
+
+  /** 读取指定会话的全部消息 */
+  @Get('sessions/:id/messages')
+  getSessionMessages(@Param('id') id: string): HistoryMessage[] {
+    if (!this.historyService.hasSession(id)) {
+      throw new HttpException('session not found', HttpStatus.NOT_FOUND);
+    }
+    return this.historyService.getMessages(id);
+  }
+
+  /** 删除一个会话（连同其消息） */
+  @Delete('sessions/:id')
+  deleteSession(@Param('id') id: string): { ok: boolean } {
+    const ok = this.historyService.deleteSession(id);
+    if (!ok) {
+      throw new HttpException('session not found', HttpStatus.NOT_FOUND);
+    }
+    return { ok };
   }
 }

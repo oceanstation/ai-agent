@@ -1,28 +1,40 @@
 <template>
-  <div class="chat-container">
-    <div
-      ref="messageContainer"
-      class="chat-messages"
-    >
+  <div class="chat-layout">
+    <SessionPanel
+      :sessions="sessionList"
+      :current-id="sessionId"
+      :collapsed="panelCollapsed"
+      :loading="sessionsLoading"
+      @toggle="panelCollapsed = !panelCollapsed"
+      @select="handleSelectSession"
+      @create="handleCreateSession"
+      @delete="handleDeleteSession"
+    />
+
+    <div class="chat-container">
       <div
-        v-for="(message, index) in messages"
-        :key="index"
-        :class="['message', message.role]"
+        ref="messageContainer"
+        class="chat-messages"
       >
-        <component
-          :is="RENDERER_MAP[message.block.type]"
-          v-bind="rendererProps(message.block)"
-          :class="wrapperClass(message.block.type)"
-        />
-      </div>
-      <div
-        v-if="isLoading"
-        class="message assistant"
-      >
-        <LoadingDots />
+        <div
+          v-for="(message, index) in messages"
+          :key="index"
+          :class="['message', message.role]"
+        >
+          <component
+            :is="RENDERER_MAP[message.block.type]"
+            v-bind="rendererProps(message.block)"
+            :class="wrapperClass(message.block.type)"
+          />
+        </div>
+        <div
+          v-if="isLoading"
+          class="message assistant"
+        >
+          <LoadingDots />
+        </div>
       </div>
 
-      <!-- 底部输入框 -->
       <div class="chat-input">
         <div class="input-wrapper">
           <textarea
@@ -47,8 +59,12 @@
               height="16"
             >
               <path
-                fill="currentColor"
-                d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M12 20V4M5 11l7-7 7 7"
               />
             </svg>
             <svg
@@ -75,10 +91,24 @@ import JsonBlock from '@/components/JsonBlock.vue';
 import ListBlock from '@/components/ListBlock.vue';
 import LoadingDots from '@/components/LoadingDots.vue';
 import MarkdownBlock from '@/components/MarkdownBlock.vue';
+import SessionPanel, {
+  type SessionSummary,
+} from '@/components/SessionPanel.vue';
 import ToolBlock from '@/components/ToolBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { ref, type Component } from 'vue';
+import { onMounted, ref, type Component } from 'vue';
+
+/** 后端 HistoryMessage 的最小契约（与 apps/agent/.../history.types.ts 对齐） */
+interface HistoryMessageDTO {
+  id?: number;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  toolName?: string | null;
+  raw?: string | null;
+  createdAt: number;
+}
 
 /**
  * Content Block 协议（对齐 OpenAI / Anthropic 风格）
@@ -97,6 +127,7 @@ const RENDERER_MAP: Record<ContentBlock['type'], Component | null> = {
   json: JsonBlock,
   tool_use: ToolBlock,
   done: null,
+  session: null,
 };
 
 // 将 block 归一化为对应渲染组件的 props
@@ -123,6 +154,195 @@ const userInput = ref('');
 const messageContainer = ref<HTMLElement | null>(null);
 const isLoading = ref(false);
 
+/**
+ * 会话 ID：优先从 localStorage 恢复，后端首帧 `session` block 会覆写。
+ * - 初次访问时为 null，发送时不带 sessionId，后端会自动新建并下发。
+ * - 逆向兼容：若后端校验失败也会重新下发新 id，前端直接覆写即可。
+ */
+const SESSION_STORAGE_KEY = 'ai-agent:sessionId';
+const sessionId = ref<string | null>(
+  localStorage.getItem(SESSION_STORAGE_KEY),
+);
+
+const persistSessionId = (id: string) => {
+  if (sessionId.value === id) return;
+  sessionId.value = id;
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, id);
+  } catch {
+    // 隐私模式下 localStorage 可能不可用，忽略即可
+  }
+};
+
+/**
+ * 把后端持久化的 HistoryMessage 还原为前端 ChatMessage。
+ */
+const historyToChatMessage = (msg: HistoryMessageDTO): ChatMessage | null => {
+  if (msg.role === 'system') return null;
+  if (!msg.content?.trim()) return null;
+
+  if (msg.role === 'user') {
+    return { role: 'user', block: { type: 'text', text: msg.content } };
+  }
+
+  if (msg.role === 'assistant') {
+    return { role: 'assistant', block: { type: 'text', text: msg.content } };
+  }
+
+  // tool：尝试还原为更结构化的展示
+  let parsed: unknown = msg.content;
+  try {
+    parsed = JSON.parse(msg.content);
+  } catch {
+    // 保持原字符串
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    const results = (parsed as { results?: unknown }).results;
+    if (Array.isArray(results)) {
+      const items = results
+        .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+        .map((r) => ({
+          title: typeof r.title === 'string' ? r.title : '',
+          url: typeof r.url === 'string' ? r.url : '',
+        }))
+        .filter((it) => it.title && it.url);
+      if (items.length) {
+        return { role: 'assistant', block: { type: 'list', items } };
+      }
+    }
+    return {
+      role: 'assistant',
+      block: { type: 'json', data: parsed as Record<string, unknown> },
+    };
+  }
+
+  return { role: 'assistant', block: { type: 'text', text: msg.content } };
+};
+
+/**
+ * 页面挂载时，如果本地已经存有 sessionId，则拉取该会话的历史消息并回放。
+ *
+ * - 后端 404（session 已被清理）→ 清空 localStorage，等下一轮对话新建。
+ * - 网络异常 → 静默降级，不影响首次发送。
+ */
+const restoreHistory = async () => {
+  const id = sessionId.value;
+  if (!id) return;
+
+  try {
+    const resp = await fetch(
+      `/agent/sessions/${encodeURIComponent(id)}/messages`,
+    );
+    if (resp.status === 404) {
+      sessionId.value = null;
+      try {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    if (!resp.ok) return;
+
+    const rows = (await resp.json()) as HistoryMessageDTO[];
+    const restored = rows
+      .map(historyToChatMessage)
+      .filter((m): m is ChatMessage => m !== null);
+    if (restored.length) {
+      messages.value = restored;
+      scrollToBottom();
+    }
+  } catch (err) {
+    console.warn('恢复历史消息失败:', err);
+  }
+};
+
+// ===================== 会话列表与面板状态 =====================
+
+const sessionList = ref<SessionSummary[]>([]);
+const sessionsLoading = ref(false);
+const panelCollapsed = ref(false);
+
+/** 拉取会话列表，失败时静默降级（不阻断主流程） */
+const fetchSessions = async () => {
+  sessionsLoading.value = true;
+  try {
+    const resp = await fetch('/agent/sessions');
+    if (!resp.ok) return;
+    sessionList.value = (await resp.json()) as SessionSummary[];
+  } catch (err) {
+    console.warn('拉取会话列表失败:', err);
+  } finally {
+    sessionsLoading.value = false;
+  }
+};
+
+/**
+ * 切换到指定会话：写回 sessionId + 清空当前消息 + 回放历史。
+ * 如果目标就是当前会话则直接返回，避免无谓重新拉取。
+ */
+const handleSelectSession = async (id: string) => {
+  if (id === sessionId.value) return;
+  persistSessionId(id);
+  messages.value = [];
+  await restoreHistory();
+};
+
+/**
+ * 新建会话：直接调 POST /agent/sessions 拿到 id 后写入本地，
+ * 并把新会话插到列表顶部。不预先发布完整列表，避免与后端排序字段不一致。
+ */
+const handleCreateSession = async () => {
+  try {
+    sessionsLoading.value = true;
+    const resp = await fetch('/agent/sessions', { method: 'POST' });
+    if (!resp.ok) return;
+    const created = (await resp.json()) as SessionSummary;
+    // 新会话置顶，同时切换为当前，清空消息列表
+    sessionList.value = [created, ...sessionList.value];
+    persistSessionId(created.id);
+    messages.value = [];
+  } catch (err) {
+    console.warn('新建会话失败:', err);
+  } finally {
+    sessionsLoading.value = false;
+  }
+};
+
+/**
+ * 删除会话：后端成功后从列表剔除。
+ * 若删的正好是当前会话，清空本地 sessionId + 消息，等下一轮对话时后端自动新建。
+ */
+const handleDeleteSession = async (id: string) => {
+  if (!window.confirm('确定删除该会话？删除后无法恢复。')) return;
+
+  try {
+    const resp = await fetch(`/agent/sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!resp.ok) return;
+
+    sessionList.value = sessionList.value.filter((s) => s.id !== id);
+    if (id === sessionId.value) {
+      sessionId.value = null;
+      try {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+      messages.value = [];
+    }
+  } catch (err) {
+    console.warn('删除会话失败:', err);
+  }
+};
+
+onMounted(() => {
+  void restoreHistory();
+  void fetchSessions();
+});
+
 const scrollToBottom = async () => {
   setTimeout(() => {
     if (messageContainer.value) {
@@ -132,7 +352,8 @@ const scrollToBottom = async () => {
 };
 
 const pushAssistantBlock = (block: ContentBlock) => {
-  if (block.type === 'done') return;
+  // 不需要入消息流的控制型 block
+  if (block.type === 'done' || block.type === 'session') return;
   messages.value.push({ role: 'assistant', block });
   scrollToBottom();
 };
@@ -153,7 +374,11 @@ const sendMessage = async () => {
   try {
     isLoading.value = true;
 
-    await fetchEventSource(`/agent/invoke?message=${userMessage}`, {
+    // 拼接 query：首次会话 sessionId 为空，后端会新建并于首帧下发
+    const params = new URLSearchParams({ message: userMessage });
+    if (sessionId.value) params.set('sessionId', sessionId.value);
+
+    await fetchEventSource(`/agent/invoke?${params.toString()}`, {
       onmessage(event) {
         if (!event.data) return;
 
@@ -169,12 +394,22 @@ const sendMessage = async () => {
         if ((block as any).done === true) return;
 
         if (!block.type || !(block.type in RENDERER_MAP)) return;
+
+        // 首帧 session：只存不渲染
+        if (block.type === 'session') {
+          persistSessionId(block.id);
+          return;
+        }
+
         pushAssistantBlock(block);
       },
       onerror(error) {
         console.error('Stream error:', error);
       },
     });
+
+    // 本轮结束：刷新会话列表以便 title / updatedAt / 新建的会话及时呈现
+    void fetchSessions();
   } catch (error) {
     pushAssistantBlock({
       type: 'text',
@@ -189,14 +424,21 @@ const sendMessage = async () => {
 </script>
 
 <style scoped>
+.chat-layout {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .chat-container {
+  flex: 1;
   display: flex;
   flex-direction: column;
   height: 100vh;
-  margin: 0 auto;
   padding: 5px;
   box-sizing: border-box;
-  max-width: 888px;
+  min-width: 0;
 }
 
 .chat-messages {
@@ -204,7 +446,8 @@ const sendMessage = async () => {
   overflow-y: auto;
   background: #f6f6f6;
   border-radius: 10px;
-  padding: 20px 20px 120px 20px;
+  padding: 20px;
+  min-height: 0;
 }
 
 .message {
@@ -246,16 +489,11 @@ const sendMessage = async () => {
 }
 
 .chat-input {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0 auto;
+  flex-shrink: 0;
+  margin-top: 10px;
   display: flex;
   gap: 10px;
-  width: 95%;
-  min-width: 300px;
-  max-width: 800px;
+  width: 100%;
 }
 
 .input-wrapper {
@@ -294,7 +532,7 @@ const sendMessage = async () => {
 }
 
 .send-icon {
-  transform: translateX(-1px);
+  display: block;
 }
 
 .loading-icon {

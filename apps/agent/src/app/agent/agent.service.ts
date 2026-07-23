@@ -9,8 +9,16 @@ import { createWriteMemoryTool } from './tools/write-memory.tool';
 import { buildSystemPrompt } from './config/system-prompt';
 import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
+import { HistoryService } from './history/history.service';
 import { extractMessageText } from './agent.types';
 import type { AgentInvokeResult } from './agent.types';
+
+/** Agent 执行输入：文本消息 + 可选的会话上下文 */
+export interface AgentStreamInput {
+  message: string;
+  /** 前端维护的会话 ID；用于加载历史消息并写回本轮对话 */
+  sessionId?: string;
+}
 
 @Injectable()
 export class AgentService implements OnModuleInit {
@@ -23,6 +31,7 @@ export class AgentService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly memoryService: MemoryService,
+    private readonly historyService: HistoryService,
   ) {}
 
   onModuleInit(): void {
@@ -57,7 +66,7 @@ export class AgentService implements OnModuleInit {
     });
     this.baseTools = tools;
 
-    this.logger.log('AgentService 初始化完成（含 Memory 子系统）');
+    this.logger.log('AgentService 初始化完成（含 Memory / History 子系统）');
   }
 
   /** 守卫函数：确保依赖已初始化 */
@@ -91,21 +100,128 @@ export class AgentService implements OnModuleInit {
    *
    * streamMode: "values" —— 每次 yield 一份完整的 state（含最新 messages），
    * 便于消费方直接取最后一条消息渲染，无需自己合并增量。
+   *
+   * 若传入 sessionId：
+   *   1) 会先从 SQLite 加载该 session 的历史消息，一并送给 LLM，实现多轮对话；
+   *   2) 结束后把本轮用户输入与 assistant 消息写回 SQLite，供下次继续与前端回放使用。
    */
-  async *stream(message: string): AsyncGenerator<AgentInvokeResult> {
+  async *stream(input: AgentStreamInput): AsyncGenerator<AgentInvokeResult> {
     const agent = await this.createAgentWithMemory();
+
+    // 1) 拼装消息序列：历史 + 本轮 user
+    const historyMessages = input.sessionId
+      ? this.loadHistoryAsChatMessages(input.sessionId)
+      : [];
+    const messages = [
+      ...historyMessages,
+      { role: 'user' as const, content: input.message },
+    ];
+
+    // streamMode: "values" 下每个 chunk 是"完整 state 快照"，会把我们传入的
+    // historyMessages 也一并回带。为避免下游（SSE 下发 / SQLite 持久化 / Memory Flush）
+    // 把历史消息误当作"本轮新消息"重复处理，这里记录基线长度，yield 时统一切片，
+    // 只暴露本轮真正新增的 messages。
+    //
+    // 注意：本轮的 user 消息也在基线内（historyMessages.length + 1），因此不会被
+    // 再次写回 DB —— persistTurn 会单独用 input.message 落库 user 侧。
+    const baseline = historyMessages.length + 1;
+
     const iterable = await agent.stream(
-      { messages: [{ role: 'user', content: message }] },
+      { messages },
       { streamMode: 'values' },
     );
     let lastChunk: AgentInvokeResult | null = null;
     for await (const chunk of iterable) {
-      lastChunk = chunk as AgentInvokeResult;
-      yield lastChunk;
+      const full = chunk as AgentInvokeResult;
+      const turnOnly: AgentInvokeResult = {
+        ...full,
+        messages: full.messages.slice(baseline),
+      };
+      lastChunk = turnOnly;
+      yield turnOnly;
     }
-    // 流结束后再尝试 flush，不影响 SSE 观察者
+
+    // 2) 收尾：写回 SQLite + 触发 Memory Flush
     if (lastChunk) {
-      void this.tryFlush(message, lastChunk);
+      if (input.sessionId) {
+        this.persistTurn(input.sessionId, input.message, lastChunk);
+      }
+      void this.tryFlush(input.message, lastChunk);
+    }
+  }
+
+  /**
+   * 从 SQLite 加载指定会话的历史，转成 LangChain 可接受的 role/content 数组。
+   *
+   * 只回放 user / assistant 两类消息给 LLM：
+   * - tool 消息与 tool_use 是 LangChain 内部结构，直接注入反而会破坏 chat 顺序；
+   * - system 消息由 buildSystemPrompt 每次动态注入，不需要从 DB 恢复。
+   */
+  private loadHistoryAsChatMessages(
+    sessionId: string,
+  ): { role: 'user' | 'assistant'; content: string }[] {
+    try {
+      const rows = this.historyService.getMessages(sessionId);
+      return rows
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .filter((m) => m.content.trim().length > 0)
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        }));
+    } catch (err) {
+      this.logger.warn(
+        `加载历史消息失败 (session=${sessionId}): ${(err as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * 把本轮 user 输入与 assistant 产出的所有消息（含 tool）写回 SQLite。
+   *
+   * 注意：`result.messages` 已由 stream() 内部按 baseline 切片，
+   * 只包含本轮真正新增的 AI / Tool 消息，历史部分不会再次入库。
+   */
+  private persistTurn(
+    sessionId: string,
+    userInput: string,
+    result: AgentInvokeResult,
+  ): void {
+    try {
+      // 写入用户消息
+      this.historyService.appendMessage({
+        sessionId,
+        role: 'user',
+        content: userInput,
+      });
+
+      for (const msg of result.messages) {
+        const type =
+          (msg as { getType?: () => string }).getType?.() ?? '';
+        if (type === 'ai') {
+          const text = extractMessageText(msg).trim();
+          if (!text) continue;
+          this.historyService.appendMessage({
+            sessionId,
+            role: 'assistant',
+            content: text,
+          });
+        } else if (type === 'tool') {
+          const text = extractMessageText(msg).trim();
+          if (!text) continue;
+          const toolName =
+            (msg as unknown as { name?: string }).name ?? null;
+          this.historyService.appendMessage({
+            sessionId,
+            role: 'tool',
+            content: text,
+            toolName,
+          });
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`写入对话历史失败: ${(err as Error).message}`);
     }
   }
 
@@ -115,8 +231,9 @@ export class AgentService implements OnModuleInit {
    */
   private async tryFlush(userInput: string, result: AgentInvokeResult): Promise<void> {
     try {
+      const userMsg: MemoryMessage = { role: 'user', content: userInput };
       const messages: MemoryMessage[] = [
-        { role: 'user', content: userInput },
+        userMsg,
         ...result.messages.map((m) => this.toMemoryMessage(m)),
       ].filter((m) => m.content.trim().length > 0);
 

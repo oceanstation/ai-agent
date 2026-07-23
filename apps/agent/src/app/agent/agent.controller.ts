@@ -15,7 +15,11 @@ import { AgentService } from './agent.service';
 import type { AgentInvokeResult } from './agent.types';
 import { messagesToBlocks, type ContentBlock } from './agent.blocks';
 import { HistoryService } from './history/history.service';
-import type { HistoryMessage, HistorySession } from './history/history.types';
+import type {
+  HistoryMessage,
+  HistorySearchHit,
+  HistorySession,
+} from './history/history.types';
 
 @Controller('agent')
 export class AgentController {
@@ -118,6 +122,30 @@ export class AgentController {
       throw new HttpException('session not found', HttpStatus.NOT_FOUND);
     }
     return this.historyService.getMessages(id);
+  }
+
+  /**
+   * 在指定会话内做 FTS5 全文检索（"知识库"按钮走的独立通道）。
+   * GET /agent/sessions/:id/search?q=xxx&limit=20
+   *
+   * - 不走 LLM，不写入历史，仅返回带 <mark> 高亮片段的命中列表；
+   * - 空 query / 无匹配 → 返回空数组，前端据此展示"未命中"。
+   */
+  @Get('sessions/:id/search')
+  searchSessionMessages(
+    @Param('id') id: string,
+    @Query('q') query: string,
+    @Query('limit') limitRaw?: string,
+  ): HistorySearchHit[] {
+    if (!this.historyService.hasSession(id)) {
+      throw new HttpException('session not found', HttpStatus.NOT_FOUND);
+    }
+    const limit = limitRaw ? Number.parseInt(limitRaw, 10) : 20;
+    return this.historyService.searchMessages(
+      id,
+      query ?? '',
+      Number.isFinite(limit) && limit > 0 ? limit : 20,
+    );
   }
 
   /** 删除一个会话（连同其消息） */

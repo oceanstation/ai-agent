@@ -12,10 +12,7 @@
     />
 
     <div class="chat-container">
-      <div
-        ref="messageContainer"
-        class="chat-messages"
-      >
+      <div ref="messageContainer" class="chat-messages">
         <div
           v-for="(message, index) in messages"
           :key="index"
@@ -27,10 +24,7 @@
             :class="wrapperClass(message.block.type)"
           />
         </div>
-        <div
-          v-if="isLoading"
-          class="message assistant"
-        >
+        <div v-if="isLoading" class="message assistant">
           <LoadingDots />
         </div>
       </div>
@@ -39,16 +33,44 @@
         <div class="input-wrapper">
           <textarea
             v-model="userInput"
-            placeholder="输入任务，回车执行..."
+            :placeholder="
+              useKnowledgeBase
+                ? '输入关键词（至少 3 个字），检索当前会话的知识库...'
+                : '输入任务，回车执行...'
+            "
             rows="3"
             :disabled="isLoading"
             class="textarea-input"
             @keydown.enter.prevent="sendMessage"
           />
           <button
+            type="button"
+            class="kb-toggle"
+            :class="{ active: useKnowledgeBase }"
+            :disabled="isLoading"
+            :title="
+              useKnowledgeBase
+                ? '已开启：仅在当前会话知识库中检索'
+                : '开启后仅走知识库检索，不调用大模型'
+            "
+            @click="useKnowledgeBase = !useKnowledgeBase"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" class="kb-icon">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3V4zM4 17a3 3 0 0 1 3-3h12"
+              />
+            </svg>
+            <span>知识库</span>
+          </button>
+          <button
             class="send-button"
-            :disabled="!userInput.trim() || isLoading"
-            :title="isLoading ? '发送中...' : '发送'"
+            :disabled="!canSubmit"
+            :title="sendButtonTitle"
             @click="sendMessage"
           >
             <svg
@@ -97,7 +119,7 @@ import SessionPanel, {
 import ToolBlock from '@/components/ToolBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { onMounted, ref, type Component } from 'vue';
+import { computed, onMounted, ref, type Component } from 'vue';
 
 /** 后端 HistoryMessage 的最小契约（与 apps/agent/.../history.types.ts 对齐） */
 interface HistoryMessageDTO {
@@ -153,6 +175,39 @@ const messages = ref<ChatMessage[]>([]);
 const userInput = ref('');
 const messageContainer = ref<HTMLElement | null>(null);
 const isLoading = ref(false);
+const useKnowledgeBase = ref(false); // 是否切换到"知识库检索"模式
+const KB_MIN_QUERY_LENGTH = 3; // 知识库检索关键词的最小长度
+
+const canSubmit = computed(() => {
+  if (isLoading.value) return false;
+  const trimmed = userInput.value.trim();
+  if (!trimmed) return false;
+  return !(useKnowledgeBase.value && trimmed.length < KB_MIN_QUERY_LENGTH);
+});
+
+/** 发送按钮的 title：给用户一个明确的反馈原因 */
+const sendButtonTitle = computed(() => {
+  if (isLoading.value) return '发送中...';
+  if (
+    useKnowledgeBase.value &&
+    userInput.value.trim().length > 0 &&
+    userInput.value.trim().length < KB_MIN_QUERY_LENGTH
+  ) {
+    return `知识库检索至少输入 ${KB_MIN_QUERY_LENGTH} 个字`;
+  }
+  return '发送';
+});
+
+/** 后端 FTS5 命中结构（与 apps/agent/.../history.types.ts 对齐） */
+interface HistorySearchHitDTO {
+  id?: number;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  toolName?: string | null;
+  createdAt: number;
+  snippet: string; // 已在服务端拼好 <mark> 高亮的片段
+}
 
 /**
  * 会话 ID：优先从 localStorage 恢复，后端首帧 `session` block 会覆写。
@@ -160,9 +215,7 @@ const isLoading = ref(false);
  * - 逆向兼容：若后端校验失败也会重新下发新 id，前端直接覆写即可。
  */
 const SESSION_STORAGE_KEY = 'ai-agent:sessionId';
-const sessionId = ref<string | null>(
-  localStorage.getItem(SESSION_STORAGE_KEY),
-);
+const sessionId = ref<string | null>(localStorage.getItem(SESSION_STORAGE_KEY));
 
 const persistSessionId = (id: string) => {
   if (sessionId.value === id) return;
@@ -201,7 +254,9 @@ const historyToChatMessage = (msg: HistoryMessageDTO): ChatMessage | null => {
     const results = (parsed as { results?: unknown }).results;
     if (Array.isArray(results)) {
       const items = results
-        .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+        .filter(
+          (r): r is Record<string, unknown> => !!r && typeof r === 'object',
+        )
         .map((r) => ({
           title: typeof r.title === 'string' ? r.title : '',
           url: typeof r.url === 'string' ? r.url : '',
@@ -358,8 +413,74 @@ const pushAssistantBlock = (block: ContentBlock) => {
   scrollToBottom();
 };
 
+/**
+ * 知识库检索分支：不走 LLM，只调用 GET /agent/sessions/:id/search，
+ * 将命中片段以 markdown 列表形式回显为一条 assistant text block。
+ * 无 sessionId（尚未发起过对话）或无命中时给出友好提示。
+ */
+const searchKnowledgeBase = async (query: string) => {
+  if (!sessionId.value) {
+    pushAssistantBlock({
+      type: 'text',
+      text: '当前还没有会话，先发起一次对话再使用知识库检索吧。',
+    });
+    return;
+  }
+
+  try {
+    isLoading.value = true;
+    const params = new URLSearchParams({ q: query });
+    const url = `/agent/sessions/${encodeURIComponent(sessionId.value)}/search?${params.toString()}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      pushAssistantBlock({
+        type: 'text',
+        text: `知识库检索失败：HTTP ${resp.status}`,
+      });
+      return;
+    }
+    const hits = (await resp.json()) as HistorySearchHitDTO[];
+    if (!hits.length) {
+      pushAssistantBlock({
+        type: 'text',
+        text: `未在当前会话知识库中命中「${query}」。`,
+      });
+      return;
+    }
+
+    // 用 markdown 汇总命中片段；snippet 内的 <mark> 标签会被 MarkdownBlock 原样渲染
+    const lines = hits.map((hit, idx) => {
+      const time = new Date(hit.createdAt).toLocaleString();
+      return `**${idx + 1}. [${hit.role}] · ${time}**\n\n> ${hit.snippet}`;
+    });
+    pushAssistantBlock({
+      type: 'text',
+      text: `🔎 知识库命中 ${hits.length} 条：\n\n${lines.join('\n\n')}`,
+    });
+  } catch (err) {
+    console.error('知识库检索异常:', err);
+    pushAssistantBlock({
+      type: 'text',
+      text: '知识库检索失败，请稍后重试。',
+    });
+  } finally {
+    isLoading.value = false;
+    scrollToBottom();
+  }
+};
+
 const sendMessage = async () => {
   if (!userInput.value.trim() || isLoading.value) return;
+
+  // 知识库模式：至少 3 个字才允许发起检索
+  const trimmedInput = userInput.value.trim();
+  if (useKnowledgeBase.value && trimmedInput.length < KB_MIN_QUERY_LENGTH) {
+    pushAssistantBlock({
+      type: 'text',
+      text: `知识库检索至少需要输入 ${KB_MIN_QUERY_LENGTH} 个字。`,
+    });
+    return;
+  }
 
   // 用户消息统一走 text block
   messages.value.push({
@@ -370,6 +491,12 @@ const sendMessage = async () => {
   const userMessage = userInput.value;
   userInput.value = '';
   scrollToBottom();
+
+  // 「知识库」按钮开启时，走独立的 FTS 检索通道，不调用大模型
+  if (useKnowledgeBase.value) {
+    await searchKnowledgeBase(userMessage);
+    return;
+  }
 
   try {
     isLoading.value = true;
@@ -558,6 +685,51 @@ const sendMessage = async () => {
   border-radius: 8px;
   resize: none;
   font-family: inherit;
+}
+
+.kb-toggle {
+  position: absolute;
+  left: 10px;
+  bottom: 15px;
+  height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 14px;
+  background: #fff;
+  color: #57606a;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.kb-toggle:hover:not(:disabled) {
+  border-color: #1976d2;
+  color: #1976d2;
+}
+
+.kb-toggle.active {
+  background: transparent;
+  border-color: #1976d2;
+  color: #1976d2;
+}
+
+.kb-toggle.active:hover:not(:disabled) {
+  background: #1976d2;
+  border-color: #1976d2;
+  color: #fff;
+}
+
+.kb-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kb-icon {
+  display: block;
 }
 
 .textarea-input:disabled {

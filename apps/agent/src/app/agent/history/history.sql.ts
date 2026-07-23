@@ -34,6 +34,42 @@ export const SCHEMA_SQL = `
     ON sessions(updated_at DESC);
 `;
 
+/**
+ * FTS5 全文检索 schema：影子索引 messages_fts + 3 个触发器。
+ *
+ * 设计说明：
+ * - `content='messages' / content_rowid='id'`：外部内容表模式，FTS 表只维护
+ *   倒排索引，正文仍由 messages 表持有，避免双写与数据漂移。
+ * - `tokenize='trigram'`：SQLite 3.34+ 内置的三元组分词器，对中文短语检索友好
+ *   （unicode61 会退化为逐字，噪声大）。
+ * - 三个触发器分别对应 INSERT / DELETE / UPDATE，保证 messages 变更自动同步到 FTS。
+ *   DELETE / UPDATE 的写法 `INSERT INTO messages_fts(messages_fts, ...) VALUES('delete', ...)`
+ *   是 FTS5 官方推荐的"外部内容表"同步范式。
+ */
+export const FTS_SCHEMA_SQL = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    content,
+    content='messages',
+    content_rowid='id',
+    tokenize='trigram'
+  );
+
+  CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content)
+      VALUES('delete', old.id, old.content);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content)
+      VALUES('delete', old.id, old.content);
+    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+  END;
+`;
+
 /** 启动时执行的 PRAGMA 语句 */
 export const PRAGMA_SQL = {
   /** 开启外键约束，删除 session 时级联清理 messages */
@@ -90,5 +126,27 @@ export const MESSAGE_SQL = {
       FROM messages
      WHERE session_id = ?
      ORDER BY id ASC
+  `,
+
+  /**
+   * 仅在指定 session 内做 FTS5 全文检索，按 rank 相关度升序（越靠前越相关）返回。
+   *
+   * 说明：
+   * - `snippet(表, 列索引, 开标签, 闭标签, 省略符, token数)` 返回带高亮标记的摘要片段，
+   *   前端可直接以 HTML 渲染（<mark> 是 W3C 标准语义标签）。
+   * - `messages_fts MATCH ?` 才会走 FTS 倒排索引；`m.session_id = ?` 是普通 B-Tree 过滤，
+   *   两者组合后即"当前会话内命中的消息按相关度排序"。
+   * - 参数顺序: matchQuery, sessionId, limit
+   */
+  searchInSession: `
+    SELECT m.id, m.session_id AS sessionId, m.role, m.content,
+           m.tool_name AS toolName, m.raw, m.created_at AS createdAt,
+           snippet(messages_fts, 0, '<mark>', '</mark>', '…', 12) AS snippet
+      FROM messages_fts
+      JOIN messages m ON m.id = messages_fts.rowid
+     WHERE messages_fts MATCH ?
+       AND m.session_id = ?
+     ORDER BY rank
+     LIMIT ?
   `,
 } as const;

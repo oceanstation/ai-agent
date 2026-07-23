@@ -45,3 +45,12 @@ export interface AppendMessageInput {
   toolName?: string | null;
   raw?: string | null;
 }
+
+/**
+ * FTS5 全文检索命中结果：在 HistoryMessage 基础上追加 `snippet` 字段，
+ * 服务端已用 <mark></mark> 包裹关键词命中位置，前端可直接以 HTML 渲染。
+ */
+export interface HistorySearchHit extends HistoryMessage {
+  /** 带高亮标签的摘要片段，例如 "……前文<mark>关键词</mark>后文……" */
+  snippet: string;
+}

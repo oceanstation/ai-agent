@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadHistoryConfig, type HistoryConfig } from './history.config';
 import {
+  FTS_SCHEMA_SQL,
   MESSAGE_SQL,
   PRAGMA_SQL,
   SCHEMA_SQL,
@@ -19,6 +20,7 @@ import {
 import type {
   AppendMessageInput,
   HistoryMessage,
+  HistorySearchHit,
   HistorySession,
 } from './history.types';
 
@@ -160,6 +162,35 @@ export class HistoryService implements OnModuleInit, OnModuleDestroy {
     return rows as unknown as HistoryMessage[];
   }
 
+  /**
+   * 在指定会话内做 FTS5 全文检索，返回带高亮片段的命中列表。
+   *
+   * 实现要点：
+   * - 仅当前 session 范围：WHERE 同时限定 session_id，卸载跨会话噪声。
+   * - 入参兼容普通关键词：直接作为 MATCH 表达式传入，用户如果输入了不合法的 FTS5
+   *   语法（例如未闭合引号），会抛错；经开关封装后返回空数组，不影响主流程。
+   * - `snippet` 已在 SQL 层拼好 <mark> 标签，服务层不做任何字符串拼接，避免 XSS 风险
+   *   （前端需以 v-html 或同等方式渲染，但由于内容来自用户自己的历史，风险模型可接受）。
+   */
+  searchMessages(
+    sessionId: string,
+    query: string,
+    limit = 20,
+  ): HistorySearchHit[] {
+    if (!this.db) return [];
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    try {
+      const rows = this.db
+        .prepare(MESSAGE_SQL.searchInSession)
+        .all(trimmed, sessionId, limit);
+      return rows as unknown as HistorySearchHit[];
+    } catch (err) {
+      this.logger.warn(`searchMessages 失败: ${(err as Error).message}`);
+      return [];
+    }
+  }
+
   // ===================== 内部辅助 =====================
 
   private ensureDb(): DatabaseSync {
@@ -172,5 +203,7 @@ export class HistoryService implements OnModuleInit, OnModuleDestroy {
   private initSchema(): void {
     if (!this.db) return;
     this.db.exec(SCHEMA_SQL);
+    // FTS 影子表与同步触发器：幂等 DDL，只在首次启动时真正创建
+    this.db.exec(FTS_SCHEMA_SQL);
   }
 }

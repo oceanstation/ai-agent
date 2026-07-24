@@ -7,11 +7,13 @@ import { createSearchTool } from './tools/search.tool';
 import { createReadMemoryTool } from './tools/read-memory.tool';
 import { createWriteMemoryTool } from './tools/write-memory.tool';
 import { buildSystemPrompt } from './config/system-prompt';
+import { loadMcpConfig, type McpConfig } from './config/mcp.config';
 import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
 import { extractMessageText } from './agent.types';
 import type { AgentInvokeResult } from './agent.types';
+import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 
 /** Agent 执行输入：文本消息 + 可选的会话上下文 */
 export interface AgentStreamInput {
@@ -27,6 +29,7 @@ export class AgentService implements OnModuleInit {
   /** 每次 stream 前根据最新 memory 上下文重建，避免"重启才生效"问题 */
   private baseTools: ReturnType<typeof createSearchTool>[] = [];
   private baseModel: ChatOpenAI | null = null;
+  private mcpConfig: McpConfig = { enabled: false, client: { mcpServers: {} } };
 
   constructor(
     private readonly configService: ConfigService,
@@ -52,7 +55,7 @@ export class AgentService implements OnModuleInit {
     } else {
       this.logger.warn('未检测到 TAVILY_API_KEY，搜索工具将不可用');
     }
-    // read_memory / write_memory 与 search 工具的签名不一致，用 as any 兜底避免过度约束类型
+
     tools.push(
       createReadMemoryTool(this.memoryService) as never,
       createWriteMemoryTool(this.memoryService) as never,
@@ -65,7 +68,7 @@ export class AgentService implements OnModuleInit {
       configuration: { baseURL },
     });
     this.baseTools = tools;
-
+    this.mcpConfig = loadMcpConfig(this.configService);
     this.logger.log('AgentService 初始化完成（含 Memory / History 子系统）');
   }
 
@@ -88,10 +91,18 @@ export class AgentService implements OnModuleInit {
     const model = this.ensureReady();
     const ctx = await this.memoryService.buildContext();
     const systemPrompt = buildSystemPrompt(ctx);
+
+    // MCP 工具列表
+    let mcpTools: Awaited<ReturnType<MultiServerMCPClient['getTools']>> = [];
+    if (this.mcpConfig.enabled) {
+      const client = new MultiServerMCPClient(this.mcpConfig.client);
+      mcpTools = await client.getTools();
+    }
+
     return createDeepAgent({
       model,
-      tools: this.baseTools,
       systemPrompt,
+      tools: [...this.baseTools, ...mcpTools],
     });
   }
 

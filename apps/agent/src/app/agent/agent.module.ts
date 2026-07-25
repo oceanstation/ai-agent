@@ -3,9 +3,10 @@ import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
 import { MemoryModule } from './memory/memory.module';
 import { HistoryModule } from './history/history.module';
+import { SkillModule } from './skills/skill.module';
 
 @Module({
-  imports: [MemoryModule, HistoryModule],
+  imports: [MemoryModule, HistoryModule, SkillModule],
   controllers: [AgentController],
   providers: [AgentService],
   exports: [AgentService],

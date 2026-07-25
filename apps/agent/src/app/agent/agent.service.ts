@@ -6,11 +6,13 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import { createSearchTool } from './tools/search.tool';
 import { createReadMemoryTool } from './tools/read-memory.tool';
 import { createWriteMemoryTool } from './tools/write-memory.tool';
+import { createReadSkillTool } from './tools/read-skill.tool';
 import { buildSystemPrompt } from './config/system-prompt';
 import { loadMcpConfig, type McpConfig } from './config/mcp.config';
 import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
+import { SkillService } from './skills/skill.service';
 import { extractMessageText } from './agent.types';
 import type { AgentInvokeResult } from './agent.types';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
@@ -36,6 +38,7 @@ export class AgentService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly memoryService: MemoryService,
     private readonly historyService: HistoryService,
+    private readonly skillService: SkillService,
   ) {}
 
   onModuleInit(): void {
@@ -60,6 +63,7 @@ export class AgentService implements OnModuleInit {
     tools.push(
       createReadMemoryTool(this.memoryService),
       createWriteMemoryTool(this.memoryService),
+      createReadSkillTool(this.skillService),
     );
 
     this.baseModel = new ChatOpenAI({
@@ -90,8 +94,11 @@ export class AgentService implements OnModuleInit {
    */
   private async createAgentWithMemory() {
     const model = this.ensureReady();
+
+    // 组织 systemPrompt
     const ctx = await this.memoryService.buildContext();
-    const systemPrompt = buildSystemPrompt(ctx);
+    const skills = this.skillService.list(); // Skill 元数据（渐进式披露）
+    const systemPrompt = buildSystemPrompt(ctx, skills);
 
     // MCP 工具列表
     let mcpTools: Awaited<ReturnType<MultiServerMCPClient['getTools']>> = [];

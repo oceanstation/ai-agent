@@ -117,6 +117,7 @@ import SessionPanel, {
   type SessionSummary,
 } from '@/components/SessionPanel.vue';
 import ToolBlock from '@/components/ToolBlock.vue';
+import UsageBlock from '@/components/UsageBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { computed, onMounted, ref, type Component } from 'vue';
@@ -149,6 +150,7 @@ const RENDERER_MAP: Record<ContentBlock['type'], Component | null> = {
   list: ListBlock,
   json: JsonBlock,
   tool_use: ToolBlock,
+  usage: UsageBlock,
   done: null,
   session: null,
 };
@@ -164,6 +166,13 @@ const rendererProps = (block: ContentBlock): Record<string, unknown> => {
       return { content: block.data };
     case 'tool_use':
       return { items: [block.name] };
+    case 'usage':
+      return {
+        inputTokens: block.inputTokens,
+        outputTokens: block.outputTokens,
+        totalTokens: block.totalTokens,
+        llmCalls: block.llmCalls,
+      };
     default:
       return {};
   }

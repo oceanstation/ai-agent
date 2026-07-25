@@ -46,6 +46,19 @@ export interface DoneBlock {
   type: 'done';
 }
 
+/** Token 用量（本轮 agent 交互累计） */
+export interface UsageBlock {
+  type: 'usage';
+  /** 输入 token 累计 */
+  inputTokens: number;
+  /** 输出 token 累计 */
+  outputTokens: number;
+  /** 总 token（= input + output） */
+  totalTokens: number;
+  /** 本轮参与统计的 LLM 调用次数 */
+  llmCalls: number;
+}
+
 /**
  * 会话元信息（SSE 首帧下发）。
  * 后端在 `/agent/invoke` 的第一帧下发 `{ type: 'session', id }`，
@@ -63,7 +76,5 @@ export type ContentBlock =
   | JsonBlock
   | ToolUseBlock
   | DoneBlock
-  | SessionBlock;
-
-/** ContentBlock 的所有可能 `type` 字面量 */
-export type ContentBlockType = ContentBlock['type'];
+  | SessionBlock
+  | UsageBlock;

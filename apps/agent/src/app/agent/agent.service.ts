@@ -13,7 +13,7 @@ import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
 import { SkillService } from './skills/skill.service';
-import { extractMessageText } from './agent.types';
+import { extractMessageText, sumTokenUsage } from './agent.types';
 import type { AgentInvokeResult } from './agent.types';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 import { createAgent } from 'langchain';
@@ -160,8 +160,15 @@ export class AgentService implements OnModuleInit {
       yield turnOnly;
     }
 
-    // 2) 收尾：写回 SQLite + 触发 Memory Flush
+    // 2) 收尾：统计 token 用量 + 写回 SQLite + 触发 Memory Flush
     if (lastChunk) {
+      // Token 统计：累加本轮所有 AIMessage 的 usage_metadata。
+      // 一次 agent 交互可能包含多轮 LLM 调用（工具往返），因此需要累加。
+      const usage = sumTokenUsage(lastChunk.messages);
+      lastChunk.usage = usage;
+
+      yield { messages: [], usage } satisfies AgentInvokeResult;
+
       if (input.sessionId) {
         this.persistTurn(input.sessionId, input.message, lastChunk);
       }

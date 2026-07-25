@@ -61,6 +61,9 @@ export class AgentController {
           // 因此每个 chunk 到达时，先对**全量** messages 做过滤转换，得到当前
           // 应展示的 blocks 序列，再与已推数量 diff，只把新增部分推给前端。
           let emittedBlockCount = 0;
+          // 记录最后一个 chunk 的 usage —— agent.service 会在收尾时把
+          // 本轮 token 累计挂到最后一份快照上，供 SSE 结束前下发给前端展示。
+          let lastUsage: AgentInvokeResult['usage'] | undefined;
 
           const iterator: AsyncIterable<AgentInvokeResult> =
             this.agentService.stream({ message, sessionId });
@@ -76,9 +79,23 @@ export class AgentController {
               if (cancelled) break;
               subscriber.next({ data: block });
             }
+
+            if (chunk.usage) lastUsage = chunk.usage;
           }
 
           if (!cancelled) {
+            // 先下发 usage 帧（若有），再下发 done 结束帧
+            if (lastUsage) {
+              subscriber.next({
+                data: {
+                  type: 'usage',
+                  inputTokens: lastUsage.inputTokens,
+                  outputTokens: lastUsage.outputTokens,
+                  totalTokens: lastUsage.totalTokens,
+                  llmCalls: lastUsage.llmCalls,
+                } satisfies ContentBlock,
+              });
+            }
             subscriber.next({ data: { type: 'done' } satisfies ContentBlock });
             subscriber.complete();
           }

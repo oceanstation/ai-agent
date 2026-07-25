@@ -19,7 +19,7 @@ const searchSchema = z.object({
 });
 
 /**
- * 创建一个基于 Tavily 的互联网搜索工具，供 DeepAgent 使用。
+ * 创建一个基于 Tavily 的互联网搜索工具，供 Agent 使用。
  *
  * 使用工厂函数是因为 Tavily 需要在运行时注入 API Key，
  * 不适合以模块顶层常量的形式导出。

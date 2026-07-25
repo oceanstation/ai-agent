@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
-import { createDeepAgent } from 'deepagents';
 import type { BaseMessage } from '@langchain/core/messages';
+import type { StructuredToolInterface } from '@langchain/core/tools';
 import { createSearchTool } from './tools/search.tool';
 import { createReadMemoryTool } from './tools/read-memory.tool';
 import { createWriteMemoryTool } from './tools/write-memory.tool';
@@ -14,6 +14,7 @@ import { HistoryService } from './history/history.service';
 import { extractMessageText } from './agent.types';
 import type { AgentInvokeResult } from './agent.types';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
+import { createAgent } from 'langchain';
 
 /** Agent 执行输入：文本消息 + 可选的会话上下文 */
 export interface AgentStreamInput {
@@ -27,7 +28,7 @@ export class AgentService implements OnModuleInit {
   private readonly logger = new Logger(AgentService.name);
 
   /** 每次 stream 前根据最新 memory 上下文重建，避免"重启才生效"问题 */
-  private baseTools: ReturnType<typeof createSearchTool>[] = [];
+  private baseTools: StructuredToolInterface[] = [];
   private baseModel: ChatOpenAI | null = null;
   private mcpConfig: McpConfig = { enabled: false, client: { mcpServers: {} } };
 
@@ -49,7 +50,7 @@ export class AgentService implements OnModuleInit {
     const tavilyKey = this.configService.get<string>('TAVILY_API_KEY');
 
     // 通用工具：搜索 + 记忆读写
-    const tools: ReturnType<typeof createSearchTool>[] = [];
+    const tools: StructuredToolInterface[] = [];
     if (tavilyKey) {
       tools.push(createSearchTool(tavilyKey));
     } else {
@@ -57,8 +58,8 @@ export class AgentService implements OnModuleInit {
     }
 
     tools.push(
-      createReadMemoryTool(this.memoryService) as never,
-      createWriteMemoryTool(this.memoryService) as never,
+      createReadMemoryTool(this.memoryService),
+      createWriteMemoryTool(this.memoryService),
     );
 
     this.baseModel = new ChatOpenAI({
@@ -81,7 +82,7 @@ export class AgentService implements OnModuleInit {
   }
 
   /**
-   * 每次调用前根据最新 Memory 上下文构建一个新的 DeepAgent 实例。
+   * 每次调用前根据最新 Memory 上下文构建一个新的 Agent 实例（langchain 的 createAgent）。
    *
    * 之所以不复用全局单例：MEMORY.md 允许用户手动编辑，
    * 每次调用重建可以让改动 **无需重启进程即生效**。
@@ -99,7 +100,7 @@ export class AgentService implements OnModuleInit {
       mcpTools = await client.getTools();
     }
 
-    return createDeepAgent({
+    return createAgent({
       model,
       systemPrompt,
       tools: [...this.baseTools, ...mcpTools],

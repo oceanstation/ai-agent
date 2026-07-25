@@ -1,7 +1,7 @@
 import type { MemoryContext } from '../memory/memory.types';
 
 /**
- * DeepAgent 的基础系统提示词。
+ * Agent 的基础系统提示词。
  *
  * 保留为常量以便：
  *   1) 无记忆上下文时可直接使用

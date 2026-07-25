@@ -29,7 +29,7 @@ export class AgentController {
   ) {}
 
   /**
-   * 流式调用 DeepAgent（SSE）—— Content Block 协议
+ * 流式调用 Agent（SSE）—— Content Block 协议
    * GET /agent/invoke?message=...&sessionId=...
    *
    * - `sessionId` 可选：前端负责维护；未传时会自动新建一个 session，

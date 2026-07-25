@@ -1,15 +1,12 @@
 import type { BaseMessage } from '@langchain/core/messages';
 
 /**
- * DeepAgent invoke 后返回的 state 结构（精简版）
+ * Agent invoke 后返回的 state 结构（精简版）
  *
- * LangGraph 的 state 里还有 files / todos 等 DeepAgent 中间件字段，
- * 目前场景只关心 messages，其余用 unknown 兜底避免类型 any 化。
+ * 当前场景只关心 messages，LangGraph state 中其他字段如有需要再按需扩展。
  */
 export interface AgentInvokeResult {
   messages: BaseMessage[];
-  files?: Record<string, string>;
-  todos?: unknown[];
 }
 
 /**

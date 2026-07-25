@@ -132,7 +132,7 @@ defineEmits<{
 
 .toggle-btn:hover {
   background: #eee;
-  color: #1565c0;
+  color: var(--brand-700);
 }
 
 .toggle-icon {
@@ -169,7 +169,7 @@ defineEmits<{
   font-size: 20px;
   line-height: 1;
   border: none;
-  color: #1976d2;
+  color: var(--brand-600);
   background: transparent;
   cursor: pointer;
   transition: color 0.2s;
@@ -179,7 +179,7 @@ defineEmits<{
 }
 
 .new-btn:hover:not(:disabled) {
-  color: #1565c0;
+  color: var(--brand-700);
 }
 
 .new-btn:disabled {
@@ -214,11 +214,11 @@ defineEmits<{
 }
 
 .session-item:hover {
-  background: #f0f4fa;
+  background: var(--brand-50-soft);
 }
 
 .session-item.active {
-  background: #e3efff;
+  background: var(--brand-100);
 }
 
 .session-info {

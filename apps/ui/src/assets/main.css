@@ -1,5 +1,23 @@
 @import './base.css';
 
+/**
+ * 全局品牌色（Material Blue 700 主色）
+ *
+ * 命名遵循 tailwind / material 数值阶梯：数字越大颜色越深。
+ * - --brand-500 / 600 / 700 用于前景、边框、图标等 chrome 元素
+ * - --brand-50 / 100 用于浅底（hover / active 背景）
+ * - --brand-fg-on-brand 用于蓝底之上的浅色文字（如 user 气泡内的链接）
+ */
+:root {
+  --brand-50-soft: #f0f4fa;
+  --brand-50: #e3f2fd;
+  --brand-100: #e3efff;
+  --brand-500: #1e88e5;
+  --brand-600: #1976d2;
+  --brand-700: #1565c0;
+  --brand-fg-on-brand: #e3f2fd;
+}
+
 a,
 .green {
   text-decoration: none;

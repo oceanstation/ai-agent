@@ -577,40 +577,49 @@ const sendMessage = async () => {
 
 .message {
   display: flex;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
   gap: 12px;
   position: relative;
 }
 
 .message-content {
-  background: #fff;
-  padding: 3px 10px;
+  padding: 8px 14px;
   font-size: 13px;
-  border-radius: 12px 12px 0 12px;
-  margin-bottom: 5px;
+  line-height: 1.6;
+  max-width: 75%;
   user-select: text;
   cursor: pointer;
   position: relative;
-
-  code {
-    color: #1565c0;
-    margin: 0 2px;
-  }
-
-  a {
-    color: hsla(160, 100%, 37%, 1);
-    text-decoration: none;
-    font-size: 12px;
-  }
+  word-break: break-word;
 }
 
-.message.assistant .message-content {
-  background: #fff;
-  border-radius: 0 12px 12px 12px;
-}
-
+/* ---------- User：品牌蓝渐变气泡 ---------- */
 .message.user {
   justify-content: flex-end;
+}
+
+.message.user .message-content {
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
+  color: #fff;
+  border-radius: 14px 14px 4px 14px; /* 右下小尖角，指向用户侧 */
+}
+
+/* 用户气泡内的链接与行内 code 需要在蓝底上重新调色，保证对比度 */
+.message.user .message-content :deep(a) {
+  color: var(--brand-fg-on-brand);
+  text-decoration: underline;
+}
+
+.message.user .message-content :deep(:not(pre) > code) {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+/* ---------- Assistant：白底扁平卡片 ---------- */
+.message.assistant .message-content {
+  background: #fff;
+  color: #1f2328;
+  border-radius: 14px 14px 14px 4px; /* 左下小尖角，指向 AI 侧 */
 }
 
 .chat-input {
@@ -635,7 +644,7 @@ const sendMessage = async () => {
   height: 32px;
   padding: 0;
   border-radius: 50%;
-  background: #1976d2;
+  background: var(--brand-600);
   color: white;
   border: none;
   cursor: pointer;
@@ -647,7 +656,7 @@ const sendMessage = async () => {
 }
 
 .send-button:hover:not(:disabled) {
-  background: #1565c0;
+  background: var(--brand-700);
   transform: scale(1.05);
 }
 
@@ -705,19 +714,19 @@ const sendMessage = async () => {
 }
 
 .kb-toggle:hover:not(:disabled) {
-  border-color: #1976d2;
-  color: #1976d2;
+  border-color: var(--brand-600);
+  color: var(--brand-600);
 }
 
 .kb-toggle.active {
   background: transparent;
-  border-color: #1976d2;
-  color: #1976d2;
+  border-color: var(--brand-600);
+  color: var(--brand-600);
 }
 
 .kb-toggle.active:hover:not(:disabled) {
-  background: #1976d2;
-  border-color: #1976d2;
+  background: var(--brand-600);
+  border-color: var(--brand-600);
   color: #fff;
 }
 
@@ -737,7 +746,7 @@ const sendMessage = async () => {
 
 .textarea-input:focus {
   outline: none;
-  border: 1px solid #1565c0;
+  border: 1px solid var(--brand-700);
   box-shadow: none;
 }
 </style>

@@ -22,7 +22,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #1976d2;
+  background: var(--brand-600);
   animation: bounce 1.4s infinite ease-in-out both;
 }
 

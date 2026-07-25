@@ -80,10 +80,7 @@ const copyContent = async (event: MouseEvent) => {
 
 <style scoped>
 .markdown {
-  background: #fff;
-  padding: 3px 10px;
   font-size: 13px;
-  border-radius: 12px 12px 0 12px;
   position: relative;
   line-height: 1.6;
 }

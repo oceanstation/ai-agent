@@ -5,12 +5,14 @@ import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { MemoryModule } from './memory/memory.module';
 import { HistoryModule } from './history/history.module';
 import { SkillModule } from './skills/skill.module';
+import { WorkspaceModule } from './workspace/workspace.module';
 
 @Module({
   imports: [
     MemoryModule,
     HistoryModule,
     SkillModule,
+    WorkspaceModule,
     BootstrapModule,
   ],
   controllers: [AgentController],

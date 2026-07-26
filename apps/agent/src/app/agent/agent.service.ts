@@ -3,14 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
-import { createSearchTool } from './tools/search.tool';
-import { createReadMemoryTool } from './tools/read-memory.tool';
-import { createWriteMemoryTool } from './tools/write-memory.tool';
-import { createReadSkillTool } from './tools/read-skill.tool';
-import { createReadFileTool } from './tools/file/read-file.tool';
-import { createWriteFileTool } from './tools/file/write-file.tool';
-import { createListDirTool } from './tools/file/list-dir.tool';
-import { createRunCommandTool } from './tools/run-command.tool';
+import { buildBaseTools } from './tools';
 import { buildSystemPrompt } from './config/system-prompt';
 import { loadMcpConfig, type McpConfig } from './config/mcp.config';
 import { MemoryService } from './memory/memory.service';
@@ -58,31 +51,18 @@ export class AgentService implements OnModuleInit {
     const deepseekModel = this.configService.get<string>('DEEPSEEK_MODEL');
     const tavilyKey = this.configService.get<string>('TAVILY_API_KEY');
 
-    // 通用工具：搜索 + 记忆读写
-    const tools: StructuredToolInterface[] = [];
-    if (tavilyKey) {
-      tools.push(createSearchTool(tavilyKey));
-    } else {
-      this.logger.warn('未检测到 TAVILY_API_KEY，搜索工具将不可用');
-    }
-
-    tools.push(
-      createReadMemoryTool(this.memoryService),
-      createWriteMemoryTool(this.memoryService),
-      createReadSkillTool(this.skillService),
-      createReadFileTool(this.workspaceService),
-      createWriteFileTool(this.workspaceService),
-      createListDirTool(this.workspaceService),
-      createRunCommandTool(this.workspaceService),
-    );
-
     this.baseModel = new ChatOpenAI({
       model: deepseekModel,
       temperature: 0,
       apiKey: deepseekKey,
       configuration: { baseURL },
     });
-    this.baseTools = tools;
+    this.baseTools = buildBaseTools({
+      memoryService: this.memoryService,
+      skillService: this.skillService,
+      workspaceService: this.workspaceService,
+      tavilyApiKey: tavilyKey,
+    });
     this.mcpConfig = loadMcpConfig(this.configService);
     this.logger.log('AgentService 初始化完成（含 Memory / History 子系统）');
   }

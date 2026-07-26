@@ -113,7 +113,7 @@ export class BootstrapService implements OnApplicationBootstrap {
 
     switch (result.status) {
       case 'ok':
-        this.logger.debug(line);
+        this.logger.log(line);
         break;
       case 'repaired':
         this.logger.log(line);

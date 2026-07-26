@@ -55,13 +55,22 @@ export class HistoryService implements OnModuleInit, OnModuleDestroy {
       // WAL 提升并发读写吞吐；单用户场景收益小但无害
       this.db.exec(PRAGMA_SQL.journalModeWal);
       this.initSchema();
-      this.logger.log(`HistoryService 已连接 SQLite: ${this.config.dbFile}`);
     } catch (err) {
       this.logger.warn(
         `HistoryService 初始化失败（历史记录将不可用）: ${(err as Error).message}`,
       );
       this.db = null;
     }
+  }
+
+  /** 数据库是否就绪，供 bootstrap check 汇报使用 */
+  isReady(): boolean {
+    return this.db !== null;
+  }
+
+  /** 暴露配置只读视图，供 bootstrap check 读取 dbFile 路径 */
+  getConfig(): Readonly<HistoryConfig> {
+    return this.config;
   }
 
   onModuleDestroy(): void {

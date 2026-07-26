@@ -64,7 +64,6 @@ export class AgentService implements OnModuleInit {
       tavilyApiKey: tavilyKey,
     });
     this.mcpConfig = loadMcpConfig(this.configService);
-    this.logger.log('AgentService 初始化完成（含 Memory / History 子系统）');
   }
 
   /** 守卫函数：确保依赖已初始化 */

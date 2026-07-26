@@ -51,9 +51,6 @@ export class SkillService implements OnModuleInit {
         this.registry.set(meta.name, meta);
       }
     }
-    this.logger.log(
-      `已加载 ${this.registry.size} 个 skill：${[...this.registry.keys()].join(', ') || '（空）'}`,
-    );
   }
 
   /** 返回所有 skill 的元数据，按名字排序稳定输出 */

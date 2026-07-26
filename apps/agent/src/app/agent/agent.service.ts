@@ -49,7 +49,6 @@ export class AgentService implements OnModuleInit {
 
     const baseURL = this.configService.get<string>('DEEPSEEK_API_URL');
     const deepseekModel = this.configService.get<string>('DEEPSEEK_MODEL');
-    const tavilyKey = this.configService.get<string>('TAVILY_API_KEY');
 
     this.baseModel = new ChatOpenAI({
       model: deepseekModel,
@@ -61,7 +60,6 @@ export class AgentService implements OnModuleInit {
       memoryService: this.memoryService,
       skillService: this.skillService,
       workspaceService: this.workspaceService,
-      tavilyApiKey: tavilyKey,
     });
     this.mcpConfig = loadMcpConfig(this.configService);
   }

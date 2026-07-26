@@ -12,7 +12,10 @@
     />
 
     <div class="chat-container">
-      <div ref="messageContainer" class="chat-messages">
+      <div
+        ref="messageContainer"
+        class="chat-messages"
+      >
         <div
           v-for="(message, index) in messages"
           :key="index"
@@ -24,7 +27,10 @@
             :class="wrapperClass(message.block.type)"
           />
         </div>
-        <div v-if="isLoading" class="message assistant">
+        <div
+          v-if="isLoading"
+          class="message assistant"
+        >
           <LoadingDots />
         </div>
       </div>
@@ -55,7 +61,12 @@
             "
             @click="useKnowledgeBase = !useKnowledgeBase"
           >
-            <svg viewBox="0 0 24 24" width="14" height="14" class="kb-icon">
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              class="kb-icon"
+            >
               <path
                 fill="none"
                 stroke="currentColor"
@@ -165,7 +176,11 @@ const rendererProps = (block: ContentBlock): Record<string, unknown> => {
     case 'json':
       return { content: block.data };
     case 'tool_use':
-      return { items: [block.name] };
+      return {
+        items: [block.name],
+        inputs: [block.input],
+        kind: block.kind ?? 'tool',
+      };
     case 'usage':
       return {
         inputTokens: block.inputTokens,

@@ -1,9 +1,6 @@
 <template>
   <div class="chat-container">
-    <div
-      ref="messageContainer"
-      class="chat-messages"
-    >
+    <div ref="messageContainer" class="chat-messages">
       <div
         v-for="(message, index) in messages"
         :key="index"
@@ -15,10 +12,7 @@
           :class="wrapperClass(message.block.type)"
         />
       </div>
-      <div
-        v-if="isLoading"
-        class="message assistant"
-      >
+      <div v-if="isLoading" class="message assistant">
         <LoadingDots />
       </div>
 
@@ -80,6 +74,7 @@ import ListBlock from '@/components/ListBlock.vue';
 import LoadingDots from '@/components/LoadingDots.vue';
 import MarkdownBlock from '@/components/MarkdownBlock.vue';
 import ToolBlock from '@/components/ToolBlock.vue';
+import UsageBlock from '@/components/UsageBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { ref, type Component } from 'vue';
@@ -100,7 +95,9 @@ const RENDERER_MAP: Record<ContentBlock['type'], Component | null> = {
   list: ListBlock,
   json: JsonBlock,
   tool_use: ToolBlock,
+  usage: UsageBlock,
   done: null,
+  session: null,
 };
 
 // 将 block 归一化为对应渲染组件的 props
@@ -113,7 +110,11 @@ const rendererProps = (block: ContentBlock): Record<string, unknown> => {
     case 'json':
       return { content: block.data };
     case 'tool_use':
-      return { items: [block.name] };
+      return {
+        items: [block.name],
+        inputs: [block.input],
+        kind: block.kind ?? 'tool',
+      };
     default:
       return {};
   }

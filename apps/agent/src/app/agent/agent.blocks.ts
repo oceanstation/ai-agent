@@ -18,6 +18,16 @@ export const HIDDEN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'write_memory',
 ]);
 
+/** 子代理工具名单：这些 tool 的背后其实是一个内嵌 Agent */
+export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'search',
+]);
+
+/** 给一个 tool 名判定它在协议里的 kind */
+function resolveToolKind(name: string): 'tool' | 'subagent' {
+  return SUBAGENT_TOOL_NAMES.has(name) ? 'subagent' : 'tool';
+}
+
 /** 内部使用：AIMessage 上的 tool_calls 结构（LangChain 已归一化） */
 interface AIToolCall {
   id?: string;
@@ -48,6 +58,7 @@ export function messageToBlocks(message: BaseMessage): ContentBlock[] {
         id: call.id,
         name: call.name,
         input: call.args,
+        kind: resolveToolKind(call.name),
       });
     }
     const text = extractMessageText(ai).trim();
@@ -97,6 +108,7 @@ export function messagesToBlocks(messages: BaseMessage[]): ContentBlock[] {
           id: call.id,
           name: call.name,
           input: call.args,
+          kind: resolveToolKind(call.name),
         });
       }
       const text = extractMessageText(ai).trim();

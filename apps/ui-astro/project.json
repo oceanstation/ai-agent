@@ -33,6 +33,13 @@
         "command": "astro preview",
         "cwd": "apps/ui-astro"
       }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint \"src/**/*.{ts,tsx,vue}\"",
+        "cwd": "apps/ui-astro"
+      }
     }
   },
   "tags": []

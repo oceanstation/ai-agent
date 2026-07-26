@@ -8,18 +8,14 @@ import { createReadFileTool } from './file/read-file.tool';
 import { createWriteFileTool } from './file/write-file.tool';
 import { createReadMemoryTool } from './read-memory.tool';
 import { createReadSkillTool } from './read-skill.tool';
+import { createSearchSubagentTool, isSearchSubagentAvailable } from './agents/search.subagent';
 import { createRunCommandTool } from './run-command.tool';
-import { createSearchTool } from './search.tool';
 import { createWriteMemoryTool } from './write-memory.tool';
 
-/**
- * 装配 base 工具集所需的依赖集合。
- */
 export interface BaseToolDeps {
   memoryService: MemoryService;
   skillService: SkillService;
   workspaceService: WorkspaceService;
-  tavilyApiKey?: string;
 }
 
 const logger = new Logger('BaseTools');
@@ -44,15 +40,16 @@ interface ToolSpec {
 export function buildBaseTools(
   deps: BaseToolDeps,
 ): StructuredToolInterface[] {
-  const { memoryService, skillService, workspaceService, tavilyApiKey } = deps;
+  const { memoryService, skillService, workspaceService } = deps;
 
   // specs 只描述"有哪些工具、什么条件下启用、怎么造"，不做任何真正的动作
   const specs: ToolSpec[] = [
     {
-      name: 'internet_search',
-      enabled: () => !!tavilyApiKey,
-      factory: () => createSearchTool(tavilyApiKey),
-      fallbackMessage: '未检测到 TAVILY_API_KEY，搜索工具将不可用',
+      name: 'search',
+      enabled: isSearchSubagentAvailable,
+      factory: () => createSearchSubagentTool(),
+      fallbackMessage:
+        '未检测到 TAVILY_API_KEY 或 DEEPSEEK_API_KEY，search subagent 将不可用',
     },
     {
       name: 'read_memory',

@@ -39,6 +39,7 @@ export interface ToolUseBlock {
   id?: string;
   name: string;
   input?: Record<string, unknown>;
+  kind?: 'tool' | 'subagent';
 }
 
 /** 流结束标记 */

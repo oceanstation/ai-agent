@@ -58,8 +58,8 @@ vite.config.*.timestamp*
 vitest.config.*.timestamp*
 test-output
 
-# Memory 子系统本地存储（含 MEMORY.md 与每日会话日志），避免隐私外泄
+# 用户agent相关产物，避免隐私外泄
+workspace
 .memory/
-
-# History 子系统 SQLite 数据库（对话原始记录），避免隐私外泄
+.skills/
 .data/

@@ -1,5 +1,6 @@
 import type { MemoryContext } from '../memory/memory.types';
 import type { SkillMeta } from '../skills/skill.types';
+import type { WorkspaceConfig } from '../workspace/workspace.config';
 
 export const BASE_SYSTEM_PROMPT = `# 角色
 你是一位贴心、严谨的私人助理。你拥有跨会话的**长期记忆**与可扩展的**技能库**，配合外部工具，为用户提供连贯、可靠、可追溯的服务。
@@ -29,6 +30,13 @@ export const BASE_SYSTEM_PROMPT = `# 角色
 - 当用户请求匹配某个 skill 时，**先用 read_skill 加载 SKILL.md 全文**，再严格按其中指令执行——不要仅凭 description 猜测做法。
 - 无匹配技能时，按常规能力回答，禁止强行套用不相关的 skill。
 
+## 工作区（read_file / write_file / list_dir / run_command）
+- 所有文件系统操作被严格限制在下方【工作目录】所示的根目录内；路径参数**必须相对该根目录**，禁止使用绝对路径或 ../ 形式的父级逃逸。
+- **先侦察再动手**：不了解目录结构时，先用 list_dir 探路；不确定文件内容时，先用 read_file（大文件请配合 offset/limit 分段读取）。
+- **写入需谨慎**：write_file 的默认 mode=overwrite 会覆盖整个文件；只在用户明确要求修改/新建时使用；不确定就改用 append 模式，或先读原文再改。
+- **禁区与只读**：命中禁区（如 .git、node_modules、.env 系列）或 workspace 处于只读模式时，写入会失败——不要重试，直接向用户说明。
+- **命令执行**：run_command 需 workspace 显式启用且命令在白名单里；参数以数组形式传入，不要拼接 shell 字符串。命令失败时把 exit code 与 stderr 摘要给用户。
+
 # 输出规范
 - 使用 Markdown，**先结论后依据**；必要时用小标题、有序列表、表格提升可读性。
 - 语气自然、简洁；避免空话、套话与无关免责声明。
@@ -38,10 +46,12 @@ export const BASE_SYSTEM_PROMPT = `# 角色
 export function buildSystemPrompt(
   ctx: MemoryContext,
   skills: SkillMeta[] = [],
+  workspace?: WorkspaceConfig,
 ): string {
   const evergreen = ctx.evergreen.trim() || '（暂无）';
   const recent = ctx.recentDaily.trim() || '（暂无）';
   const skillList = formatSkillCatalog(skills);
+  const workspaceSection = formatWorkspaceSection(workspace);
   return `${BASE_SYSTEM_PROMPT}
 
 # 长期记忆（evergreen · MEMORY.md）
@@ -51,7 +61,29 @@ ${evergreen}
 ${recent}
 
 # 可用技能（用 read_skill 加载正文）
-${skillList}`;
+${skillList}
+
+# 工作目录（workspace）
+${workspaceSection}`;
+}
+
+/**
+ * 把 workspace 运行时信息渲染成一段摘要，让 LLM 明确自己被关在哪个盒子里、能做什么不能做什么。
+ */
+function formatWorkspaceSection(workspace?: WorkspaceConfig): string {
+  if (!workspace) return '（未配置）';
+  const perms: string[] = ['read'];
+  if (workspace.writable) perms.push('write');
+  if (workspace.commandEnabled) perms.push('run_command');
+  const allowlist = workspace.commandAllowlist.length
+    ? workspace.commandAllowlist.join(', ')
+    : '（空 = 命令执行禁用）';
+  return [
+    `- 根目录：${workspace.root}`,
+    `- 权限：${perms.join(' / ')}`,
+    `- 单文件上限：${workspace.maxFileSize} 字节`,
+    `- 命令白名单：${allowlist}`,
+  ].join('\n');
 }
 
 /**

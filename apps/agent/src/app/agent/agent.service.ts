@@ -7,12 +7,17 @@ import { createSearchTool } from './tools/search.tool';
 import { createReadMemoryTool } from './tools/read-memory.tool';
 import { createWriteMemoryTool } from './tools/write-memory.tool';
 import { createReadSkillTool } from './tools/read-skill.tool';
+import { createReadFileTool } from './tools/file/read-file.tool';
+import { createWriteFileTool } from './tools/file/write-file.tool';
+import { createListDirTool } from './tools/file/list-dir.tool';
+import { createRunCommandTool } from './tools/run-command.tool';
 import { buildSystemPrompt } from './config/system-prompt';
 import { loadMcpConfig, type McpConfig } from './config/mcp.config';
 import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
 import { SkillService } from './skills/skill.service';
+import { WorkspaceService } from './workspace/workspace.service';
 import { extractMessageText, sumTokenUsage } from './agent.types';
 import type { AgentInvokeResult } from './agent.types';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
@@ -39,6 +44,7 @@ export class AgentService implements OnModuleInit {
     private readonly memoryService: MemoryService,
     private readonly historyService: HistoryService,
     private readonly skillService: SkillService,
+    private readonly workspaceService: WorkspaceService,
   ) {}
 
   onModuleInit(): void {
@@ -64,6 +70,10 @@ export class AgentService implements OnModuleInit {
       createReadMemoryTool(this.memoryService),
       createWriteMemoryTool(this.memoryService),
       createReadSkillTool(this.skillService),
+      createReadFileTool(this.workspaceService),
+      createWriteFileTool(this.workspaceService),
+      createListDirTool(this.workspaceService),
+      createRunCommandTool(this.workspaceService),
     );
 
     this.baseModel = new ChatOpenAI({
@@ -98,7 +108,12 @@ export class AgentService implements OnModuleInit {
     // 组织 systemPrompt
     const ctx = await this.memoryService.buildContext();
     const skills = this.skillService.list(); // Skill 元数据（渐进式披露）
-    const systemPrompt = buildSystemPrompt(ctx, skills);
+    const workspace = this.workspaceService.getConfig();
+    const systemPrompt = buildSystemPrompt(
+      ctx,
+      skills,
+      workspace,
+    );
 
     // MCP 工具列表
     let mcpTools: Awaited<ReturnType<MultiServerMCPClient['getTools']>> = [];

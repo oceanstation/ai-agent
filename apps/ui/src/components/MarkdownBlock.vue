@@ -1,7 +1,6 @@
 <template>
   <div
     class="markdown"
-    @dblclick="copyContent($event)"
     v-html="renderedContent"
   />
 </template>
@@ -67,15 +66,6 @@ const renderedContent = computed(() => {
   const rawHtml = md.value.render(props.content);
   return DOMPurify.sanitize(rawHtml);
 });
-
-const copyContent = async (event: MouseEvent) => {
-  const text = (event.target as HTMLElement).textContent || '';
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (err) {
-    console.error('复制失败:', err);
-  }
-};
 </script>
 
 <style scoped>

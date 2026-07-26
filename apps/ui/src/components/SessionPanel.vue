@@ -14,14 +14,28 @@
     >
       <div class="panel-header">
         <span class="panel-title">会话</span>
-        <button
-          class="new-btn"
-          :disabled="loading"
-          title="新建会话"
-          @click="$emit('create')"
-        >
-          +
-        </button>
+        <div class="panel-actions">
+          <button
+            class="new-btn"
+            :disabled="loading"
+            title="新建会话"
+            @click="$emit('create')"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 5v14" />
+              <path d="M5 12h14" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div
@@ -163,11 +177,12 @@ defineEmits<{
 }
 
 .new-btn {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   font-size: 20px;
   line-height: 1;
+  border-radius: 50%;
   border: none;
   color: var(--brand-600);
   background: transparent;
@@ -179,7 +194,8 @@ defineEmits<{
 }
 
 .new-btn:hover:not(:disabled) {
-  color: var(--brand-700);
+  color: #fff;
+  background: var(--brand-600);
 }
 
 .new-btn:disabled {

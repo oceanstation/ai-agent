@@ -1,5 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import * as path from 'node:path';
+import { parseIntSafe } from '../utils/config-parse';
 
 /**
  * Memory 子系统的运行时配置。
@@ -59,10 +60,4 @@ export function loadMemoryConfig(configService: ConfigService): MemoryConfig {
       DEFAULT_FLUSH_MIN_MESSAGES,
     ),
   };
-}
-
-function parseIntSafe(v: string | undefined, fallback: number): number {
-  if (!v) return fallback;
-  const n = Number.parseInt(v, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
 }

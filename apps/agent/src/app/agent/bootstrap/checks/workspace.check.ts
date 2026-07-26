@@ -61,8 +61,8 @@ export class WorkspaceCheck implements BootstrapCheck {
     return {
       status: repaired ? 'repaired' : 'ok',
       message: repaired
-        ? `工作目录已自动创建：${root}`
-        : `工作目录就绪：${root}`,
+        ? `工作目录已自动创建：${root}（writable=${cfg.writable} commandEnabled=${cfg.commandEnabled}）`
+        : `工作目录就绪：${root}（writable=${cfg.writable} commandEnabled=${cfg.commandEnabled}）`,
       details: {
         root,
         writable: cfg.writable,

@@ -26,12 +26,12 @@ export const BASE_SYSTEM_PROMPT = `# 角色
 - **冲突处理**：用户最新指令优先级最高；若与记忆冲突，以最新指令为准，并考虑更新记忆。
 
 ## 技能（read_skill）
-- 下方【可用技能】清单只披露 name + description，是索引级信息。
+- 下述【可用技能】清单只披露 name + description，是索引级信息。
 - 当用户请求匹配某个 skill 时，**先用 read_skill 加载 SKILL.md 全文**，再严格按其中指令执行——不要仅凭 description 猜测做法。
 - 无匹配技能时，按常规能力回答，禁止强行套用不相关的 skill。
 
 ## 工作区（read_file / write_file / list_dir / run_command）
-- 所有文件系统操作被严格限制在下方【工作目录】所示的根目录内；路径参数**必须相对该根目录**，禁止使用绝对路径或 ../ 形式的父级逃逸。
+- 所有文件系统操作被严格限制在下述【工作目录】所示的根目录内；路径参数**必须相对该根目录**，禁止使用绝对路径或 ../ 形式的父级逃逸。
 - **先侦察再动手**：不了解目录结构时，先用 list_dir 探路；不确定文件内容时，先用 read_file（大文件请配合 offset/limit 分段读取）。
 - **写入需谨慎**：write_file 的默认 mode=overwrite 会覆盖整个文件；只在用户明确要求修改/新建时使用；不确定就改用 append 模式，或先读原文再改。
 - **禁区与只读**：命中禁区（如 .git、node_modules、.env 系列）或 workspace 处于只读模式时，写入会失败——不要重试，直接向用户说明。
@@ -43,6 +43,9 @@ export const BASE_SYSTEM_PROMPT = `# 角色
 - 代码、命令、文件名、标识符一律用反引号包裹。
 - 中英文混排时，中文与英文/数字之间保留一个空格。`;
 
+/**
+ * 按"稳定度"从高到低排列各段，最大化 LLM 前缀缓存命中率。
+ */
 export function buildSystemPrompt(
   ctx: MemoryContext,
   skills: SkillMeta[] = [],
@@ -54,17 +57,17 @@ export function buildSystemPrompt(
   const workspaceSection = formatWorkspaceSection(workspace);
   return `${BASE_SYSTEM_PROMPT}
 
-# 长期记忆（evergreen · MEMORY.md）
-${evergreen}
-
-# 近期会话记忆（daily）
-${recent}
+# 工作目录（workspace）
+${workspaceSection}
 
 # 可用技能（用 read_skill 加载正文）
 ${skillList}
 
-# 工作目录（workspace）
-${workspaceSection}`;
+# 长期记忆（evergreen · MEMORY.md）
+${evergreen}
+
+# 近期会话记忆（daily）
+${recent}`;
 }
 
 /**

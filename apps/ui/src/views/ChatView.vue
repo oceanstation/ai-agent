@@ -17,8 +17,9 @@
         class="chat-messages"
       >
         <div
-          v-for="(message, index) in messages"
-          :key="index"
+          v-for="message in messages"
+          :key="message.id"
+          v-memo="[message.block]"
           :class="['message', message.role]"
         >
           <component
@@ -133,6 +134,7 @@ import type { ContentBlock } from '@ai-agent/common';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { computed, onMounted, ref, type Component } from 'vue';
 import { formatSearchHits } from '@/utils/searchHighlight';
+import { generateId } from '@/utils/id';
 
 /** 后端 HistoryMessage 的最小契约（与 apps/agent/.../history.types.ts 对齐） */
 interface HistoryMessageDTO {
@@ -151,6 +153,7 @@ interface HistoryMessageDTO {
  * 类型定义位于 @ai-agent/common，前后端共享同一份契约。
  */
 interface ChatMessage {
+  id: string;
   role: 'user' | 'assistant';
   block: ContentBlock;
 }
@@ -260,11 +263,19 @@ const historyToChatMessage = (msg: HistoryMessageDTO): ChatMessage | null => {
   if (!msg.content?.trim()) return null;
 
   if (msg.role === 'user') {
-    return { role: 'user', block: { type: 'text', text: msg.content } };
+    return {
+      id: generateId(),
+      role: 'user',
+      block: { type: 'text', text: msg.content },
+    };
   }
 
   if (msg.role === 'assistant') {
-    return { role: 'assistant', block: { type: 'text', text: msg.content } };
+    return {
+      id: generateId(),
+      role: 'assistant',
+      block: { type: 'text', text: msg.content },
+    };
   }
 
   // tool：尝试还原为更结构化的展示
@@ -288,16 +299,25 @@ const historyToChatMessage = (msg: HistoryMessageDTO): ChatMessage | null => {
         }))
         .filter((it) => it.title && it.url);
       if (items.length) {
-        return { role: 'assistant', block: { type: 'list', items } };
+        return {
+          id: generateId(),
+          role: 'assistant',
+          block: { type: 'list', items },
+        };
       }
     }
     return {
+      id: generateId(),
       role: 'assistant',
       block: { type: 'json', data: parsed as Record<string, unknown> },
     };
   }
 
-  return { role: 'assistant', block: { type: 'text', text: msg.content } };
+  return {
+    id: generateId(),
+    role: 'assistant',
+    block: { type: 'text', text: msg.content },
+  };
 };
 
 /**
@@ -434,7 +454,7 @@ const scrollToBottom = async () => {
 const pushAssistantBlock = (block: ContentBlock) => {
   // 不需要入消息流的控制型 block
   if (block.type === 'done' || block.type === 'session') return;
-  messages.value.push({ role: 'assistant', block });
+  messages.value.push({ id: generateId(), role: 'assistant', block });
   scrollToBottom();
 };
 
@@ -497,6 +517,7 @@ const sendMessage = async () => {
 
   // 用户消息统一走 text block
   messages.value.push({
+    id: generateId(),
     role: 'user',
     block: { type: 'text', text: userInput.value },
   });

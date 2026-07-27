@@ -6,10 +6,8 @@
   "dependencies": {
     "@ai-agent/common": "workspace:*",
     "@microsoft/fetch-event-source": "^2.0.1",
-    "@shikijs/markdown-it": "^4.3.1",
     "dompurify": "^3.2.5",
     "markdown-it": "^14.3.0",
-    "shiki": "^4.3.1",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
     "vue3-json-viewer": "^2.3.0"

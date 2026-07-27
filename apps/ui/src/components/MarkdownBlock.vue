@@ -7,65 +7,16 @@
 
 <script setup lang="ts">
 import DOMPurify from 'dompurify';
-import MarkdownIt from 'markdown-it';
-import { fromHighlighter } from '@shikijs/markdown-it/core';
-import { createHighlighterCore } from 'shiki/core';
-import { createOnigurumaEngine } from 'shiki/engine/oniguruma';
-import { computed, ref, onMounted } from 'vue';
+import { computed } from 'vue';
+import { md } from './markdownRenderer';
 
 const props = defineProps<{
   content: string;
 }>();
 
-const md = ref<MarkdownIt | null>(null);
-
-onMounted(async () => {
-  const highlighter = await createHighlighterCore({
-    themes: [
-      import('shiki/themes/vitesse-dark.mjs'),
-      import('shiki/themes/vitesse-light.mjs'),
-    ],
-    langs: [
-      import('shiki/langs/javascript.mjs'),
-      import('shiki/langs/typescript.mjs'),
-      import('shiki/langs/python.mjs'),
-      import('shiki/langs/json.mjs'),
-      import('shiki/langs/html.mjs'),
-      import('shiki/langs/css.mjs'),
-      import('shiki/langs/shell.mjs'),
-      import('shiki/langs/markdown.mjs'),
-      import('shiki/langs/yaml.mjs'),
-      import('shiki/langs/sql.mjs'),
-    ],
-    engine: createOnigurumaEngine(import('shiki/wasm')),
-  });
-
-  const instance = MarkdownIt({ html: true, linkify: true, typographer: true });
-  instance.use(
-    fromHighlighter(highlighter, {
-      themes: {
-        light: 'vitesse-light',
-        dark: 'vitesse-dark',
-      },
-    }),
-  );
-  md.value = instance;
-});
-
-const renderedContent = computed(() => {
-  if (!md.value) {
-    // shiki 尚未加载完成，使用纯 markdown-it 降级渲染
-    const fallback = MarkdownIt({
-      html: true,
-      linkify: true,
-      typographer: true,
-    });
-    const rawHtml = fallback.render(props.content);
-    return DOMPurify.sanitize(rawHtml);
-  }
-  const rawHtml = md.value.render(props.content);
-  return DOMPurify.sanitize(rawHtml);
-});
+const renderedContent = computed(() =>
+  DOMPurify.sanitize(md.render(props.content)),
+);
 </script>
 
 <style scoped>

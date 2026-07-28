@@ -91,6 +91,7 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "gray-matter": "^4.0.3",
+    "js-tiktoken": "^1.0.21",
     "langchain": "^1.5.3",
     "picocolors": "^1.1.1",
     "reflect-metadata": "^0.2.0",

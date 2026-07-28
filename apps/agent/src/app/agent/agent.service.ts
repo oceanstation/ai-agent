@@ -15,6 +15,7 @@ import { extractMessageText, sumTokenUsage } from './agent.types';
 import type { AgentInvokeResult } from './agent.types';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 import { createAgent } from 'langchain';
+import { trimMessagesByTokenBudget, type ChatMessageLite } from './utils/token-counter';
 
 /** Agent 执行输入：文本消息 + 可选的会话上下文 */
 export interface AgentStreamInput {
@@ -123,9 +124,11 @@ export class AgentService implements OnModuleInit {
     const historyMessages = input.sessionId
       ? this.loadHistoryAsChatMessages(input.sessionId)
       : [];
-    const messages = [
-      ...historyMessages,
-      { role: 'user' as const, content: input.message },
+    const messages: [ 'user' | 'assistant', string ][] = [
+      ...historyMessages.map(
+        (m) => [m.role, m.content] as ['user' | 'assistant', string],
+      ),
+      ['user', input.message],
     ];
 
     // streamMode: "values" 下每个 chunk 是"完整 state 快照"，会把我们传入的
@@ -174,23 +177,29 @@ export class AgentService implements OnModuleInit {
    * 只回放 user / assistant 两类消息给 LLM：
    * - tool 消息与 tool_use 是 LangChain 内部结构，直接注入反而会破坏 chat 顺序；
    * - system 消息由 buildSystemPrompt 每次动态注入，不需要从 DB 恢复。
+   *
+   * **上下文压缩（Step 1）**：全量历史会随会话线性增长，直接塞给 LLM 会撞窗口上限，
+   * 因此这里按 token 预算做"滑动窗口"裁剪 —— 从最新一条向前累加，超预算即停止，
+   * 保留最近若干轮原文；更老的对话本轮直接丢弃（后续步骤会用摘要来补偿）。
    */
-  private loadHistoryAsChatMessages(
-    sessionId: string,
-  ): { role: 'user' | 'assistant'; content: string }[] {
+  private loadHistoryAsChatMessages(sessionId: string): ChatMessageLite[] {
     try {
       const rows = this.historyService.getMessages(sessionId);
-      return rows
+      const all: ChatMessageLite[] = rows
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .filter((m) => m.content.trim().length > 0)
         .map((m) => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
         }));
+
+      const { messages, keptTokens, dropped } = trimMessagesByTokenBudget(all);
+      if (dropped > 0) {
+        this.logger.warn(`${sessionId}：保留 ${keptTokens} tokens，丢弃 ${dropped} 条消息`);
+      }
+      return messages;
     } catch (err) {
-      this.logger.warn(
-        `加载历史消息失败 (session=${sessionId}): ${(err as Error).message}`,
-      );
+      this.logger.warn(`${sessionId}: ${(err as Error).message}`);
       return [];
     }
   }

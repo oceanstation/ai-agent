@@ -61,5 +61,4 @@ test-output
 # 用户agent相关产物，避免隐私外泄
 /workspace
 .memory/
-.skills/
 .data/

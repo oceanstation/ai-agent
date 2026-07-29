@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "dev": "nx run-many -t serve dev -p @ai-agent/agent @ai-agent/ui",
+    "dev": "nx run-many -t serve -p @ai-agent/agent @ai-agent/ui",
     "agent:serve": "nx serve @ai-agent/agent",
     "ui:dev": "nx dev @ai-agent/ui",
     "ui-astro:dev": "nx dev @ai-agent/ui-astro",

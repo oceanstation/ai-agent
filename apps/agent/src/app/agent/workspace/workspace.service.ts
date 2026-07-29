@@ -38,6 +38,12 @@ export interface CommandResult {
   truncated: boolean;
 }
 
+/** 子进程 stdout/stderr 的截断缓冲；成对使用避免重复 slice/size 记账 */
+interface OutputBuf {
+  chunks: string[];
+  size: number;
+}
+
 /**
  * WorkspaceService：Agent 对用户文件系统的唯一入口。
  *
@@ -228,40 +234,37 @@ export class WorkspaceService {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      const stdoutChunks: string[] = [];
-      const stderrChunks: string[] = [];
-      let stdoutSize = 0;
-      let stderrSize = 0;
+      const limit = this.config.maxCommandOutput;
+      const stdout: OutputBuf = { chunks: [], size: 0 };
+      const stderr: OutputBuf = { chunks: [], size: 0 };
       let truncated = false;
       let timedOut = false;
 
-      const limit = this.config.maxCommandOutput;
+      /**
+       * 把一段输出追加到缓冲区，返回是否发生了截断。
+       * 命中上限后当前数据被裁剪；再后续数据整段丢弃并直接返回 true。
+       */
+      const push = (buf: OutputBuf, data: string): boolean => {
+        const remain = limit - buf.size;
+        if (remain <= 0) return true;
+        if (data.length > remain) {
+          buf.chunks.push(data.slice(0, remain));
+          buf.size += remain;
+          return true;
+        }
+        buf.chunks.push(data);
+        buf.size += data.length;
+        return false;
+      };
 
       child.stdout.setEncoding('utf-8');
       child.stderr.setEncoding('utf-8');
 
       child.stdout.on('data', (data: string) => {
-        if (stdoutSize >= limit) {
-          truncated = true;
-          return;
-        }
-        const remain = limit - stdoutSize;
-        const chunk = data.length > remain ? data.slice(0, remain) : data;
-        stdoutChunks.push(chunk);
-        stdoutSize += chunk.length;
-        if (data.length > remain) truncated = true;
+        if (push(stdout, data)) truncated = true;
       });
-
       child.stderr.on('data', (data: string) => {
-        if (stderrSize >= limit) {
-          truncated = true;
-          return;
-        }
-        const remain = limit - stderrSize;
-        const chunk = data.length > remain ? data.slice(0, remain) : data;
-        stderrChunks.push(chunk);
-        stderrSize += chunk.length;
-        if (data.length > remain) truncated = true;
+        if (push(stderr, data)) truncated = true;
       });
 
       const killer = setTimeout(() => {
@@ -278,8 +281,8 @@ export class WorkspaceService {
         clearTimeout(killer);
         resolve({
           code,
-          stdout: stdoutChunks.join(''),
-          stderr: stderrChunks.join(''),
+          stdout: stdout.chunks.join(''),
+          stderr: stderr.chunks.join(''),
           timedOut,
           truncated,
         });

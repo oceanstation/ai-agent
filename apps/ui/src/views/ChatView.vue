@@ -125,38 +125,14 @@ import JsonBlock from '@/components/JsonBlock.vue';
 import ListBlock from '@/components/ListBlock.vue';
 import LoadingDots from '@/components/LoadingDots.vue';
 import MarkdownBlock from '@/components/MarkdownBlock.vue';
-import SessionPanel, {
-  type SessionSummary,
-} from '@/components/SessionPanel.vue';
+import SessionPanel from '@/components/SessionPanel.vue';
 import ToolBlock from '@/components/ToolBlock.vue';
 import UsageBlock from '@/components/UsageBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { computed, onMounted, ref, type Component } from 'vue';
 import { formatSearchHits } from '@/utils/searchHighlight';
-import { generateId } from '@/utils/id';
-
-/** 后端 HistoryMessage 的最小契约（与 apps/agent/.../history.types.ts 对齐） */
-interface HistoryMessageDTO {
-  id?: number;
-  sessionId: string;
-  role: 'user' | 'assistant' | 'tool' | 'system';
-  content: string;
-  toolName?: string | null;
-  raw?: string | null;
-  createdAt: number;
-}
-
-/**
- * Content Block 协议（对齐 OpenAI / Anthropic 风格）
- * 每条 SSE data 就是一个 ContentBlock，前端仅根据 type 分发渲染。
- * 类型定义位于 @ai-agent/common，前后端共享同一份契约。
- */
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  block: ContentBlock;
-}
+import { useChatSession } from '@/composables/useChatSession';
 
 // 类型 → 渲染组件 的映射（新增类型只需在此登记）
 const RENDERER_MAP: Record<ContentBlock['type'], Component | null> = {
@@ -199,11 +175,26 @@ const rendererProps = (block: ContentBlock): Record<string, unknown> => {
 const wrapperClass = (type: ContentBlock['type']) =>
   type === 'json' ? '' : 'message-content';
 
-const messages = ref<ChatMessage[]>([]);
+const {
+  sessionId,
+  messages,
+  sessionList,
+  sessionsLoading,
+  restoreHistory,
+  fetchSessions,
+  selectSession,
+  createSession,
+  deleteSession,
+  persistSessionId,
+  appendUserMessage,
+  appendAssistantBlock,
+} = useChatSession();
+
 const userInput = ref('');
 const messageContainer = ref<HTMLElement | null>(null);
 const isLoading = ref(false);
 const useKnowledgeBase = ref(false); // 是否切换到"知识库检索"模式
+const panelCollapsed = ref(false);
 const KB_MIN_QUERY_LENGTH = 3; // 知识库检索关键词的最小长度
 
 const canSubmit = computed(() => {
@@ -237,213 +228,7 @@ interface HistorySearchHitDTO {
   snippet: string; // 已在服务端拼好 <mark> 高亮的片段
 }
 
-/**
- * 会话 ID：优先从 localStorage 恢复，后端首帧 `session` block 会覆写。
- * - 初次访问时为 null，发送时不带 sessionId，后端会自动新建并下发。
- * - 逆向兼容：若后端校验失败也会重新下发新 id，前端直接覆写即可。
- */
-const SESSION_STORAGE_KEY = 'ai-agent:sessionId';
-const sessionId = ref<string | null>(localStorage.getItem(SESSION_STORAGE_KEY));
-
-const persistSessionId = (id: string) => {
-  if (sessionId.value === id) return;
-  sessionId.value = id;
-  try {
-    localStorage.setItem(SESSION_STORAGE_KEY, id);
-  } catch {
-    // 隐私模式下 localStorage 可能不可用，忽略即可
-  }
-};
-
-/**
- * 把后端持久化的 HistoryMessage 还原为前端 ChatMessage。
- */
-const historyToChatMessage = (msg: HistoryMessageDTO): ChatMessage | null => {
-  if (msg.role === 'system') return null;
-  if (!msg.content?.trim()) return null;
-
-  if (msg.role === 'user') {
-    return {
-      id: generateId(),
-      role: 'user',
-      block: { type: 'text', text: msg.content },
-    };
-  }
-
-  if (msg.role === 'assistant') {
-    return {
-      id: generateId(),
-      role: 'assistant',
-      block: { type: 'text', text: msg.content },
-    };
-  }
-
-  // tool：尝试还原为更结构化的展示
-  let parsed: unknown = msg.content;
-  try {
-    parsed = JSON.parse(msg.content);
-  } catch {
-    // 保持原字符串
-  }
-
-  if (parsed && typeof parsed === 'object') {
-    const results = (parsed as { results?: unknown }).results;
-    if (Array.isArray(results)) {
-      const items = results
-        .filter(
-          (r): r is Record<string, unknown> => !!r && typeof r === 'object',
-        )
-        .map((r) => ({
-          title: typeof r.title === 'string' ? r.title : '',
-          url: typeof r.url === 'string' ? r.url : '',
-        }))
-        .filter((it) => it.title && it.url);
-      if (items.length) {
-        return {
-          id: generateId(),
-          role: 'assistant',
-          block: { type: 'list', items },
-        };
-      }
-    }
-    return {
-      id: generateId(),
-      role: 'assistant',
-      block: { type: 'json', data: parsed as Record<string, unknown> },
-    };
-  }
-
-  return {
-    id: generateId(),
-    role: 'assistant',
-    block: { type: 'text', text: msg.content },
-  };
-};
-
-/**
- * 页面挂载时，如果本地已经存有 sessionId，则拉取该会话的历史消息并回放。
- *
- * - 后端 404（session 已被清理）→ 清空 localStorage，等下一轮对话新建。
- * - 网络异常 → 静默降级，不影响首次发送。
- */
-const restoreHistory = async () => {
-  const id = sessionId.value;
-  if (!id) return;
-
-  try {
-    const resp = await fetch(
-      `/agent/sessions/${encodeURIComponent(id)}/messages`,
-    );
-    if (resp.status === 404) {
-      sessionId.value = null;
-      try {
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-      } catch {
-        // ignore
-      }
-      return;
-    }
-    if (!resp.ok) return;
-
-    const rows = (await resp.json()) as HistoryMessageDTO[];
-    const restored = rows
-      .map(historyToChatMessage)
-      .filter((m): m is ChatMessage => m !== null);
-    if (restored.length) {
-      messages.value = restored;
-      scrollToBottom();
-    }
-  } catch (err) {
-    console.warn('恢复历史消息失败:', err);
-  }
-};
-
-// ===================== 会话列表与面板状态 =====================
-
-const sessionList = ref<SessionSummary[]>([]);
-const sessionsLoading = ref(false);
-const panelCollapsed = ref(false);
-
-/** 拉取会话列表，失败时静默降级（不阻断主流程） */
-const fetchSessions = async () => {
-  sessionsLoading.value = true;
-  try {
-    const resp = await fetch('/agent/sessions');
-    if (!resp.ok) return;
-    sessionList.value = (await resp.json()) as SessionSummary[];
-  } catch (err) {
-    console.warn('拉取会话列表失败:', err);
-  } finally {
-    sessionsLoading.value = false;
-  }
-};
-
-/**
- * 切换到指定会话：写回 sessionId + 清空当前消息 + 回放历史。
- * 如果目标就是当前会话则直接返回，避免无谓重新拉取。
- */
-const handleSelectSession = async (id: string) => {
-  if (id === sessionId.value) return;
-  persistSessionId(id);
-  messages.value = [];
-  await restoreHistory();
-};
-
-/**
- * 新建会话：直接调 POST /agent/sessions 拿到 id 后写入本地，
- * 并把新会话插到列表顶部。不预先发布完整列表，避免与后端排序字段不一致。
- */
-const handleCreateSession = async () => {
-  try {
-    sessionsLoading.value = true;
-    const resp = await fetch('/agent/sessions', { method: 'POST' });
-    if (!resp.ok) return;
-    const created = (await resp.json()) as SessionSummary;
-    // 新会话置顶，同时切换为当前，清空消息列表
-    sessionList.value = [created, ...sessionList.value];
-    persistSessionId(created.id);
-    messages.value = [];
-  } catch (err) {
-    console.warn('新建会话失败:', err);
-  } finally {
-    sessionsLoading.value = false;
-  }
-};
-
-/**
- * 删除会话：后端成功后从列表剔除。
- * 若删的正好是当前会话，清空本地 sessionId + 消息，等下一轮对话时后端自动新建。
- */
-const handleDeleteSession = async (id: string) => {
-  if (!window.confirm('确定删除该会话？删除后无法恢复。')) return;
-
-  try {
-    const resp = await fetch(`/agent/sessions/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-    if (!resp.ok) return;
-
-    sessionList.value = sessionList.value.filter((s) => s.id !== id);
-    if (id === sessionId.value) {
-      sessionId.value = null;
-      try {
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-      } catch {
-        // ignore
-      }
-      messages.value = [];
-    }
-  } catch (err) {
-    console.warn('删除会话失败:', err);
-  }
-};
-
-onMounted(() => {
-  void restoreHistory();
-  void fetchSessions();
-});
-
-const scrollToBottom = async () => {
+const scrollToBottom = () => {
   setTimeout(() => {
     if (messageContainer.value) {
       messageContainer.value.scrollTop = messageContainer.value.scrollHeight;
@@ -452,11 +237,22 @@ const scrollToBottom = async () => {
 };
 
 const pushAssistantBlock = (block: ContentBlock) => {
-  // 不需要入消息流的控制型 block
-  if (block.type === 'done' || block.type === 'session') return;
-  messages.value.push({ id: generateId(), role: 'assistant', block });
+  appendAssistantBlock(block);
   scrollToBottom();
 };
+
+const handleSelectSession = async (id: string) => {
+  await selectSession(id);
+  scrollToBottom();
+};
+const handleCreateSession = () => createSession();
+const handleDeleteSession = (id: string) => deleteSession(id);
+
+onMounted(async () => {
+  await restoreHistory();
+  scrollToBottom();
+  void fetchSessions();
+});
 
 /**
  * 知识库检索分支：不走 LLM，只调用 GET /agent/sessions/:id/search，
@@ -516,11 +312,7 @@ const sendMessage = async () => {
   }
 
   // 用户消息统一走 text block
-  messages.value.push({
-    id: generateId(),
-    role: 'user',
-    block: { type: 'text', text: userInput.value },
-  });
+  appendUserMessage(userInput.value);
 
   const userMessage = userInput.value;
   userInput.value = '';

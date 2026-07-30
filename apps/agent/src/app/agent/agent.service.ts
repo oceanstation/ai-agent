@@ -9,6 +9,7 @@ import { loadMcpConfig, type McpConfig } from './config/mcp.config';
 import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
+import { SddService } from './sdd/sdd.service';
 import { SkillService } from './skills/skill.service';
 import { WorkspaceService } from './workspace/workspace.service';
 import { extractMessageText, sumTokenUsage } from './agent.types';
@@ -39,6 +40,7 @@ export class AgentService implements OnModuleInit {
     private readonly historyService: HistoryService,
     private readonly skillService: SkillService,
     private readonly workspaceService: WorkspaceService,
+    private readonly sddService: SddService,
   ) {}
 
   onModuleInit(): void {
@@ -61,6 +63,7 @@ export class AgentService implements OnModuleInit {
       memoryService: this.memoryService,
       skillService: this.skillService,
       workspaceService: this.workspaceService,
+      sddService: this.sddService,
     });
     this.mcpConfig = loadMcpConfig(this.configService);
   }
@@ -87,10 +90,12 @@ export class AgentService implements OnModuleInit {
     const ctx = await this.memoryService.buildContext();
     const skills = this.skillService.list(); // Skill 元数据（渐进式披露）
     const workspace = this.workspaceService.getConfig();
+    const sddView = await this.sddService.buildContext();
     const systemPrompt = buildSystemPrompt(
       ctx,
       skills,
       workspace,
+      sddView,
     );
 
     // MCP 工具列表

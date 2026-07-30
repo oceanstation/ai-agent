@@ -1,6 +1,7 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { Logger } from '@nestjs/common';
 import type { MemoryService } from '../memory/memory.service';
+import type { SddService } from '../sdd/sdd.service';
 import type { SkillService } from '../skills/skill.service';
 import type { WorkspaceService } from '../workspace/workspace.service';
 import { createListDirTool } from './file/list-dir.tool';
@@ -10,12 +11,15 @@ import { createReadMemoryTool } from './read-memory.tool';
 import { createReadSkillTool } from './read-skill.tool';
 import { createSearchSubagentTool, isSearchSubagentAvailable } from './agents/search.subagent';
 import { createRunCommandTool } from './run-command.tool';
+import { createReadArtifactTool } from './sdd/read-artifact.tool';
+import { createWriteArtifactTool } from './sdd/write-artifact.tool';
 import { createWriteMemoryTool } from './write-memory.tool';
 
 export interface BaseToolDeps {
   memoryService: MemoryService;
   skillService: SkillService;
   workspaceService: WorkspaceService;
+  sddService: SddService;
 }
 
 const logger = new Logger('BaseTools');
@@ -40,7 +44,7 @@ interface ToolSpec {
 export function buildBaseTools(
   deps: BaseToolDeps,
 ): StructuredToolInterface[] {
-  const { memoryService, skillService, workspaceService } = deps;
+  const { memoryService, skillService, workspaceService, sddService } = deps;
 
   // specs 只描述"有哪些工具、什么条件下启用、怎么造"，不做任何真正的动作
   const specs: ToolSpec[] = [
@@ -85,6 +89,16 @@ export function buildBaseTools(
       name: 'run_command',
       enabled: () => true,
       factory: () => createRunCommandTool(workspaceService),
+    },
+    {
+      name: 'sdd_write_artifact',
+      enabled: () => true,
+      factory: () => createWriteArtifactTool(sddService),
+    },
+    {
+      name: 'sdd_read_artifact',
+      enabled: () => true,
+      factory: () => createReadArtifactTool(sddService),
     },
   ];
 

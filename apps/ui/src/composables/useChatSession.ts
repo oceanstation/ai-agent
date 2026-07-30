@@ -79,7 +79,7 @@ function historyToChatMessage(msg: HistoryMessageDTO): ChatMessage | null {
     // 保持原字符串
   }
 
-  // 只有「普通对象」才值得进一步结构化解析（数组/原始值直接落到最后的 text 兜底）
+  // 只有「普通对象」才值得进一步结构化解析（数组也一并纳入，走 json 展示）
   if (isRecord(parsed)) {
     // 1) Tavily 风格：{ results: [{ title, url }, ...] } → list block
     const results = parsed.results;
@@ -93,7 +93,7 @@ function historyToChatMessage(msg: HistoryMessageDTO): ChatMessage | null {
         return {
           id: generateId(),
           role: 'assistant',
-          block: { type: 'list', items },
+          block: { type: 'list', items, source: 'tool' },
         };
       }
     }
@@ -102,14 +102,23 @@ function historyToChatMessage(msg: HistoryMessageDTO): ChatMessage | null {
     return {
       id: generateId(),
       role: 'assistant',
-      block: { type: 'json', data: parsed },
+      block: { type: 'json', data: parsed, source: 'tool' },
+    };
+  }
+
+  // 数组根节点：也走 json 展示
+  if (Array.isArray(parsed)) {
+    return {
+      id: generateId(),
+      role: 'assistant',
+      block: { type: 'json', data: parsed as unknown[], source: 'tool' },
     };
   }
 
   return {
     id: generateId(),
     role: 'assistant',
-    block: { type: 'text', text: msg.content },
+    block: { type: 'text', text: msg.content, source: 'tool' },
   };
 }
 

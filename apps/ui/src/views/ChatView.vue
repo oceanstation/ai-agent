@@ -22,8 +22,36 @@
           v-memo="[message.block]"
           :class="['message', message.role]"
         >
+          <details
+            v-if="isToolResult(message.block)"
+            class="tool-result"
+          >
+            <summary class="tool-result__summary">
+              <span class="tool-result__badge">工具返回</span>
+              <span class="tool-result__label">{{ toolResultLabel(message.block) }}</span>
+              <svg
+                class="tool-result__chevron"
+                viewBox="0 0 12 12"
+                width="10"
+                height="10"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="M4 2.5 L8.5 6 L4 9.5 Z"
+                />
+              </svg>
+            </summary>
+            <div class="tool-result__content">
+              <component
+                :is="RENDERER_MAP[message.block.type]"
+                v-bind="rendererProps(message.block)"
+              />
+            </div>
+          </details>
           <component
             :is="RENDERER_MAP[message.block.type]"
+            v-else
             v-bind="rendererProps(message.block)"
             :class="wrapperClass(message.block.type)"
           />
@@ -126,6 +154,7 @@ import ListBlock from '@/components/ListBlock.vue';
 import LoadingDots from '@/components/LoadingDots.vue';
 import MarkdownBlock from '@/components/MarkdownBlock.vue';
 import SessionPanel from '@/components/SessionPanel.vue';
+import SpecGateBlock from '@/components/SpecGateBlock.vue';
 import ToolBlock from '@/components/ToolBlock.vue';
 import UsageBlock from '@/components/UsageBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
@@ -141,6 +170,7 @@ const RENDERER_MAP: Record<ContentBlock['type'], Component | null> = {
   json: JsonBlock,
   tool_use: ToolBlock,
   usage: UsageBlock,
+  spec_gate: SpecGateBlock,
   done: null,
   session: null,
 };
@@ -167,13 +197,40 @@ const rendererProps = (block: ContentBlock): Record<string, unknown> => {
         totalTokens: block.totalTokens,
         llmCalls: block.llmCalls,
       };
+    case 'spec_gate':
+      return {
+        featureId: block.featureId,
+        phase: block.phase,
+        path: block.path,
+        pendingApproval: block.pendingApproval,
+        timeline: block.timeline,
+        onApproved: handleSpecGateApproved,
+      };
     default:
       return {};
   }
 };
 
 const wrapperClass = (type: ContentBlock['type']) =>
-  type === 'json' ? '' : 'message-content';
+  type === 'json' || type === 'spec_gate' ? '' : 'message-content';
+
+/** 是否是"工具返回的原始产物"—— 后端在 block 上打了 source:'tool' 标记 */
+const isToolResult = (block: ContentBlock): boolean =>
+  (block as { source?: string }).source === 'tool';
+
+/** 折叠面板标题，尽量给出内容形态的提示，让用户判断是否需要展开 */
+const toolResultLabel = (block: ContentBlock): string => {
+  switch (block.type) {
+    case 'text':
+      return `文本 · ${block.text.length} 字`;
+    case 'list':
+      return `列表 · ${block.items.length} 项`;
+    case 'json':
+      return '结构化数据';
+    default:
+      return '';
+  }
+};
 
 const {
   sessionId,
@@ -324,11 +381,19 @@ const sendMessage = async () => {
     return;
   }
 
+  await runAgentTurn(userMessage);
+};
+
+/**
+ * 发起一次 /agent/invoke SSE 调用，逐帧消费并转发到消息流。
+ * 用户输入与 SDD 阶段批准回调都会走这条通道。
+ */
+const runAgentTurn = async (message: string) => {
   try {
     isLoading.value = true;
 
     // 拼接 query：首次会话 sessionId 为空，后端会新建并于首帧下发
-    const params = new URLSearchParams({ message: userMessage });
+    const params = new URLSearchParams({ message });
     if (sessionId.value) params.set('sessionId', sessionId.value);
 
     await fetchEventSource(`/agent/invoke?${params.toString()}`, {
@@ -374,9 +439,129 @@ const sendMessage = async () => {
     scrollToBottom();
   }
 };
+
+/**
+ * SDD 阶段批准回调：用户点击"批准"后由 SpecGateBlock 组件触发。
+ * 后端已把 approvedAt 落库，这里滞后 700ms 再发下一轮 agent 请求，
+ * 让用户在时间线里先看到当前阶段变绿，再触发模型进入下一阶段。
+ */
+const handleSpecGateApproved = (payload: {
+  featureId: string;
+  phase: string;
+}) => {
+  const nextPhase = ({
+    specify: 'plan',
+    plan: 'tasks',
+    tasks: 'implement',
+  } as Record<string, string>)[payload.phase];
+  if (!nextPhase) return;
+  const prompt =
+    `我已批准 feature \`${payload.featureId}\` 的 ${payload.phase} 阶段。` +
+    `请加载 sdd-${nextPhase} skill 并进入 ${nextPhase} 阶段。`;
+  window.setTimeout(() => {
+    void runAgentTurn(prompt);
+  }, 700);
+};
 </script>
 
 <style scoped>
+/* ---------- Tool result：默认折叠的工具产物 ---------- */
+.tool-result {
+  max-width: 75%;
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.tool-result[open] {
+  border-color: #d0d7de;
+}
+
+.tool-result__summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #57606a;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+
+/* 隐藏浏览器默认的三角标记，用自定义 chevron */
+.tool-result__summary::-webkit-details-marker,
+.tool-result__summary::marker {
+  display: none;
+}
+
+.tool-result__badge {
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: #eef1f4;
+  color: #57606a;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.tool-result__label {
+  color: #57606a;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.tool-result__chevron {
+  color: #8c959f;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  display: block;
+}
+
+.tool-result[open] > .tool-result__summary .tool-result__chevron {
+  transform: rotate(90deg);
+}
+
+.tool-result__summary:hover {
+  background: #f6f8fa;
+  color: #24292f;
+}
+
+.tool-result__summary:hover .tool-result__label,
+.tool-result__summary:hover .tool-result__chevron {
+  color: #24292f;
+}
+
+.tool-result__summary:hover .tool-result__badge {
+  background: #e1e4e8;
+  color: #24292f;
+}
+
+.tool-result__content {
+  border-top: 1px solid #eaecef;
+  padding: 10px 14px;
+  background: #fafbfc;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #24292f;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* 内部再嵌套 code / pre 时，保持扁平背景，无阴影 */
+.tool-result__content :deep(pre),
+.tool-result__content :deep(code) {
+  background: #fff;
+  box-shadow: none;
+}
+
 .chat-layout {
   display: flex;
   height: 100vh;
@@ -411,7 +596,7 @@ const sendMessage = async () => {
 }
 
 .message-content {
-  padding: 8px 14px;
+  padding: 0 10px;
   font-size: 13px;
   line-height: 1.6;
   max-width: 75%;

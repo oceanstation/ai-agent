@@ -13,7 +13,7 @@
 
 <script setup lang="ts">
 const props = defineProps<{
-  content: Record<string, any>
+  content: unknown
 }>()
 </script>
 

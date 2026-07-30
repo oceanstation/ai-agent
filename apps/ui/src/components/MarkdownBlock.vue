@@ -24,20 +24,106 @@ const renderedContent = computed(() =>
   font-size: 13px;
   position: relative;
   line-height: 1.6;
+  color: #24292f;
 }
 
-:deep(ul) {
-  padding-inline-start: 15px;
+/* 首个 / 末尾元素不要贡献额外外边距，避免气泡上下留白过大 */
+:deep(.markdown > :first-child) {
+  margin-top: 0;
+}
+:deep(.markdown > :last-child) {
+  margin-bottom: 0;
 }
 
+/* 标题分级：克制的字号 + 上大下小的呼吸，避免"# 目标"占半个气泡 */
+:deep(h1),
+:deep(h2),
+:deep(h3),
+:deep(h4),
+:deep(h5),
+:deep(h6) {
+  font-weight: 600;
+  line-height: 1.35;
+  color: #1f2328;
+  margin: 16px 0 6px;
+}
+
+:deep(h1) {
+  font-size: 16px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #eaecef;
+}
+
+:deep(h2) {
+  font-size: 14px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid #eef0f2;
+}
+
+:deep(h3) {
+  font-size: 13px;
+}
+
+:deep(h4),
+:deep(h5),
+:deep(h6) {
+  font-size: 13px;
+  color: #57606a;
+}
+
+/* 段落 & 列表：适度间距 */
+:deep(p) {
+  margin: 6px 0;
+}
+
+:deep(ul),
 :deep(ol) {
-  padding-inline-start: 15px;
+  padding-inline-start: 20px;
+  margin: 6px 0;
+}
+
+:deep(li) {
+  margin: 2px 0;
+}
+
+:deep(li > p) {
+  margin: 2px 0;
+}
+
+/* 引用块：SDD 里常见的"提示 / 备注"结构 */
+:deep(blockquote) {
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: #57606a;
+  border-left: 3px solid #d0d7de;
+  background: #f6f8fa;
+  border-radius: 0 4px 4px 0;
+}
+
+:deep(blockquote > :first-child) { margin-top: 0; }
+:deep(blockquote > :last-child) { margin-bottom: 0; }
+
+/* 表格：SDD plan 阶段偶尔会画技术选型表格 */
+:deep(table) {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+}
+:deep(th),
+:deep(td) {
+  padding: 4px 10px;
+  border: 1px solid #eaecef;
+  text-align: left;
+}
+:deep(th) {
+  background: #f6f8fa;
+  font-weight: 600;
 }
 
 /* 代码块样式 */
 :deep(pre) {
-  border-radius: 8px;
-  padding: 12px 16px;
+  border-radius: 6px;
+  padding: 10px 14px;
   overflow-x: auto;
   font-size: 12px;
   line-height: 1.5;
@@ -52,8 +138,8 @@ const renderedContent = computed(() =>
 /* 行内代码 */
 :deep(:not(pre) > code) {
   background: #f3f4f6;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
   font-size: 12px;
   font-family:
     'JetBrains Mono', 'Fira Code', 'Menlo', 'Monaco', 'Consolas', monospace;
@@ -85,7 +171,7 @@ const renderedContent = computed(() =>
 :deep(hr) {
   border: none;
   height: 1px;
-  margin: 3px 0;
+  margin: 12px 0;
   background: linear-gradient(
     to right,
     transparent,

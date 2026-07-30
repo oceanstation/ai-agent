@@ -9,10 +9,17 @@
  * 前后端同时消费该定义，天然保证契约一致。
  */
 
+/**
+ * `source` 用于标记该 block 是"工具返回的原始产物"而非"模型输出的正文"。
+ * 前端据此把工具产物默认折叠，用户想看时可以展开；模型正文原样展示。
+ */
+export type BlockSource = 'tool';
+
 /** 纯文本 / Markdown 内容 */
 export interface TextBlock {
   type: 'text';
   text: string;
+  source?: BlockSource;
 }
 
 /** 列表条目（如搜索结果） */
@@ -25,12 +32,17 @@ export interface ListItem {
 export interface ListBlock {
   type: 'list';
   items: ListItem[];
+  source?: BlockSource;
 }
 
-/** 通用结构化 JSON 内容 */
+/**
+ * 通用结构化 JSON 内容 —— 允许对象或数组根节点。
+ * 前端由 vue3-json-viewer 渲染，两者都能友好展开。
+ */
 export interface JsonBlock {
   type: 'json';
-  data: Record<string, unknown>;
+  data: Record<string, unknown> | unknown[];
+  source?: BlockSource;
 }
 
 /** Agent 调用工具的意图 */
@@ -70,6 +82,33 @@ export interface SessionBlock {
   id: string;
 }
 
+/** SDD 阶段枚举，与后端 SddPhase 保持一致 */
+export type SpecGatePhase = 'specify' | 'plan' | 'tasks' | 'implement';
+
+/** 单个阶段在时间线上的状态标记 */
+export type SpecGatePhaseStatus = 'approved' | 'pending' | 'current' | 'idle';
+
+/**
+ * 规约驱动开发（SDD）阶段闸门块。
+ *
+ * 后端在 `sdd_write_artifact` 成功写盘后，会通过 tool_result 附带
+ * `{ __sddGate: true, ... }` 结构，`agent.blocks.ts` 中的 `tryAsSpecGate`
+ * 将其识别并转成本类型下发到前端。
+ *
+ * - `pendingApproval` 为 true：前端渲染"批准并进入下一阶段"按钮；
+ * - 为 false（仅 implement 阶段）：只做完成态展示，无按钮。
+ * - `timeline`：4 阶段全局进度快照，前端据此画时间线。
+ */
+export interface SpecGateBlock {
+  type: 'spec_gate';
+  featureId: string;
+  phase: SpecGatePhase;
+  /** 相对 `.specify` 根目录的产物路径，供前端提示用户去哪里审阅 */
+  path: string;
+  pendingApproval: boolean;
+  timeline: Record<SpecGatePhase, SpecGatePhaseStatus>;
+}
+
 /** 所有 ContentBlock 变体的联合类型，前后端共同消费 */
 export type ContentBlock =
   | TextBlock
@@ -78,4 +117,5 @@ export type ContentBlock =
   | ToolUseBlock
   | DoneBlock
   | SessionBlock
-  | UsageBlock;
+  | UsageBlock
+  | SpecGateBlock;

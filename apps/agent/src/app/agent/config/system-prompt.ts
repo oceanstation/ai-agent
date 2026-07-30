@@ -1,4 +1,5 @@
 import type { MemoryContext } from '../memory/memory.types';
+import type { SddView } from '../sdd/sdd.types';
 import type { SkillMeta } from '../skills/skill.types';
 import type { WorkspaceConfig } from '../workspace/workspace.config';
 
@@ -37,6 +38,13 @@ export const BASE_SYSTEM_PROMPT = `# 角色
 - **禁区与只读**：命中禁区（如 .git、node_modules、.env 系列）或 workspace 处于只读模式时，写入会失败——不要重试，直接向用户说明。
 - **命令执行**：run_command 需 workspace 显式启用且命令在白名单里；参数以数组形式传入，不要拼接 shell 字符串。命令失败时把 exit code 与 stderr 摘要给用户。
 
+## 规约驱动开发（sdd_write_artifact / sdd_read_artifact）
+- 仅在用户明确要走"规约驱动 / SDD / 先写规约再实现"这类流程时启用；日常对话不必调用。
+- 阶段顺序固定：\`specify → plan → tasks → implement\`。写入下一阶段前，上一阶段必须已被用户批准；未批准调用会被工具拒绝，无需重试。
+- 每个阶段开始前先用 read_skill 加载对应 SKILL（sdd-specify / sdd-plan / sdd-tasks / sdd-implement），严格按其中要求生成产物。
+- 进入 plan/tasks/implement 前，通过 sdd_read_artifact 拉取所有前置阶段产物再动笔，禁止凭记忆推断上一阶段结论。
+- 写入成功后前端会渲染"阶段完成"卡片，等待用户点击批准；此时你只需简短说明产物要点，不要主动催促用户批准。
+
 # 输出规范
 - 使用 Markdown，**先结论后依据**；必要时用小标题、有序列表、表格提升可读性。
 - 语气自然、简洁；避免空话、套话与无关免责声明。
@@ -50,11 +58,13 @@ export function buildSystemPrompt(
   ctx: MemoryContext,
   skills: SkillMeta[] = [],
   workspace?: WorkspaceConfig,
+  sdd?: SddView,
 ): string {
   const evergreen = ctx.evergreen.trim() || '（暂无）';
   const recent = ctx.recentDaily.trim() || '（暂无）';
   const skillList = formatSkillCatalog(skills);
   const workspaceSection = formatWorkspaceSection(workspace);
+  const sddSection = formatSddSection(sdd);
   return `${BASE_SYSTEM_PROMPT}
 
 # 工作目录（workspace）
@@ -62,6 +72,9 @@ ${workspaceSection}
 
 # 可用技能（用 read_skill 加载正文）
 ${skillList}
+
+# 规约驱动开发（SDD）状态
+${sddSection}
 
 # 长期记忆（evergreen · MEMORY.md）
 ${evergreen}
@@ -99,6 +112,28 @@ function formatWorkspaceSection(workspace?: WorkspaceConfig): string {
 function formatSkillCatalog(skills: SkillMeta[]): string {
   if (!skills.length) return '（暂无）';
   return skills.map((s) => `- **${s.name}**：${s.description}`).join('\n');
+}
+
+/**
+ * SDD 状态段：只披露每个活跃 feature 的四阶段状态，不携带产物正文；
+ * 正文由 sdd_read_artifact 按需加载。
+ */
+function formatSddSection(sdd?: SddView): string {
+  if (!sdd || !sdd.features.length) return '（当前无活跃 feature）';
+  const lines: string[] = [];
+  for (const f of sdd.features) {
+    const marker = f === sdd.active ? '（活跃）' : '';
+    lines.push(`- **${f.featureId}**${marker} 当前阶段：${f.currentPhase}`);
+    for (const phase of ['specify', 'plan', 'tasks', 'implement'] as const) {
+      const status = f.statuses[phase];
+      const icon =
+        status === 'approved' ? '✅ 已批准'
+        : status === 'pending' ? '⏳ 待批准'
+        : '· 未开始';
+      lines.push(`  - ${phase}：${icon}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /**

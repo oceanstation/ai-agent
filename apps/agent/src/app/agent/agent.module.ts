@@ -4,6 +4,7 @@ import { AgentService } from './agent.service';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { MemoryModule } from './memory/memory.module';
 import { HistoryModule } from './history/history.module';
+import { SddModule } from './sdd/sdd.module';
 import { SkillModule } from './skills/skill.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 
@@ -13,6 +14,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     HistoryModule,
     SkillModule,
     WorkspaceModule,
+    SddModule,
     BootstrapModule,
   ],
   controllers: [AgentController],

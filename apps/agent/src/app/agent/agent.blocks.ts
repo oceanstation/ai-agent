@@ -1,5 +1,12 @@
 import type { BaseMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
-import type { ContentBlock, ListBlock, ListItem } from '@ai-agent/common';
+import type {
+  ContentBlock,
+  ListBlock,
+  ListItem,
+  SpecGateBlock,
+  SpecGatePhase,
+  SpecGatePhaseStatus,
+} from '@ai-agent/common';
 import { extractMessageText } from './agent.types';
 
 // 本文件只保留后端专属的、依赖 LangChain 的转换逻辑。
@@ -8,14 +15,15 @@ export type { ContentBlock } from '@ai-agent/common';
 /**
  * 不希望暴露到前端的工具名单。
  *
- * 记忆读写属于 Agent 的"内部脑内活动"，用户没必要看到，
- * 因此其 `tool_use` 调用块与对应 `tool` 返回块都会在转换阶段被过滤。
+ * 记忆读写与技能加载都属于 Agent 的"内部脑内活动"，用户没必要看到：
+ * 其 `tool_use` 调用块与对应 `tool` 返回块都会在转换阶段被过滤。
  * 注意：这里只影响"展示给用户"的通道，LLM 上下文中仍完整保留，
  * 不影响后续推理与 Memory Flush。
  */
 export const HIDDEN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'read_memory',
   'write_memory',
+  'read_skill',
 ]);
 
 /** 子代理工具名单：这些 tool 的背后其实是一个内嵌 Agent */
@@ -69,14 +77,21 @@ export function messageToBlocks(message: BaseMessage): ContentBlock[] {
   if (type === 'tool') {
     const tm = message as ToolMessage;
     const raw = parseToolContent(tm.content);
+    const gateBlock = tryAsSpecGate(raw);
+    if (gateBlock) return [gateBlock];
     const listBlock = tryAsList(raw);
     if (listBlock) return [listBlock];
+    if (Array.isArray(raw)) {
+      return [{ type: 'json', data: raw as unknown[], source: 'tool' }];
+    }
     if (raw && typeof raw === 'object') {
-      return [{ type: 'json', data: raw as Record<string, unknown> }];
+      return [
+        { type: 'json', data: raw as Record<string, unknown>, source: 'tool' },
+      ];
     }
     // 纯字符串工具结果 → 文本
     const text = extractMessageText(tm).trim();
-    if (text) return [{ type: 'text', text }];
+    if (text) return [{ type: 'text', text, source: 'tool' }];
     return [];
   }
 
@@ -172,5 +187,78 @@ function tryAsList(raw: unknown): ListBlock | null {
       if (title && url) items.push({ title, url });
     }
   }
-  return items.length ? { type: 'list', items } : null;
+  return items.length ? { type: 'list', items, source: 'tool' } : null;
+}
+
+/** SDD 阶段合法值，用于 tryAsSpecGate 的字段校验 */
+const SPEC_GATE_PHASES: readonly SpecGatePhase[] = [
+  'specify',
+  'plan',
+  'tasks',
+  'implement',
+];
+
+/** SDD 阶段状态合法值，用于 tryAsSpecGate 校验 timeline 字段 */
+const SPEC_GATE_STATUSES: readonly SpecGatePhaseStatus[] = [
+  'approved',
+  'pending',
+  'current',
+  'idle',
+];
+
+/**
+ * 尝试把工具结果解释为 SpecGateBlock —— 判别标志是 `__sddGate: true`。
+ *
+ * sdd_write_artifact 成功时会返回带该标志的 JSON，agent.blocks 在此把它
+ * 转成前端可渲染的 spec_gate 块（并隐藏内部 __sddGate 字段）。
+ */
+function tryAsSpecGate(raw: unknown): SpecGateBlock | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Record<string, unknown>;
+  if (rec.__sddGate !== true) return null;
+
+  const featureId = typeof rec.featureId === 'string' ? rec.featureId : '';
+  const phase =
+    typeof rec.phase === 'string' && (SPEC_GATE_PHASES as readonly string[]).includes(rec.phase)
+      ? (rec.phase as SpecGatePhase)
+      : null;
+  const filePath = typeof rec.path === 'string' ? rec.path : '';
+  const pendingApproval =
+    typeof rec.pendingApproval === 'boolean' ? rec.pendingApproval : false;
+  const timeline = normalizeTimeline(rec.timeline);
+
+  if (!featureId || !phase || !filePath) return null;
+
+  return {
+    type: 'spec_gate',
+    featureId,
+    phase,
+    path: filePath,
+    pendingApproval,
+    timeline,
+  };
+}
+
+/**
+ * 从任意值收窄出 4 阶段状态映射；缺失或非法项回落到 'idle'。
+ * 兼容旧版工具返回体（无 timeline 字段）。
+ */
+function normalizeTimeline(
+  raw: unknown,
+): Record<SpecGatePhase, SpecGatePhaseStatus> {
+  const out: Record<SpecGatePhase, SpecGatePhaseStatus> = {
+    specify: 'idle',
+    plan: 'idle',
+    tasks: 'idle',
+    implement: 'idle',
+  };
+  if (!raw || typeof raw !== 'object') return out;
+  const rec = raw as Record<string, unknown>;
+  for (const phase of SPEC_GATE_PHASES) {
+    const v = rec[phase];
+    if (typeof v === 'string' && (SPEC_GATE_STATUSES as readonly string[]).includes(v)) {
+      out[phase] = v as SpecGatePhaseStatus;
+    }
+  }
+  return out;
 }

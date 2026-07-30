@@ -24,7 +24,8 @@ const listDirSchema = z.object({
 /**
  * 创建 list_dir 工具：列出 workspace 内某目录的直接子项。
  *
- * 输出格式：每行 "d|f  <name>  [size|children=…]"，方便 LLM 直接阅读。
+ * 输出为 markdown：一级标题标示路径与总数，随后以带图标的列表列出直接子项，
+ * 文件带人类友好大小（B/KB/MB）；前端会走 MarkdownBlock 渲染。
  */
 export function createListDirTool(workspace: WorkspaceService) {
   return tool(
@@ -58,23 +59,24 @@ export function createListDirTool(workspace: WorkspaceService) {
         for (const entry of shown) {
           const full = path.join(abs, entry.name);
           if (entry.isDirectory()) {
-            lines.push(`d  ${entry.name}/`);
+            lines.push(`- 📁 \`${entry.name}/\``);
           } else if (entry.isSymbolicLink()) {
-            lines.push(`l  ${entry.name}`);
+            lines.push(`- 🔗 \`${entry.name}\``);
           } else {
             try {
               const s = await fs.stat(full);
-              lines.push(`f  ${entry.name}  ${s.size}B`);
+              lines.push(`- 📄 \`${entry.name}\` · ${formatSize(s.size)}`);
             } catch {
-              lines.push(`f  ${entry.name}`);
+              lines.push(`- 📄 \`${entry.name}\``);
             }
           }
         }
 
-        const header = `# 目录：${workspace.toRelative(abs)}（共 ${total} 项${
-          total > shown.length ? `，仅显示前 ${shown.length}` : ''
-        }）`;
-        return [header, ...lines].join('\n');
+        const rel = workspace.toRelative(abs);
+        const truncated = total > shown.length ? `，仅显示前 ${shown.length}` : '';
+        const header = `**📂 \`${rel}\`** · 共 ${total} 项${truncated}`;
+        const body = lines.length ? lines.join('\n') : '_（空目录）_';
+        return `${header}\n\n${body}`;
       } catch (err) {
         return formatError(err, p);
       }
@@ -86,6 +88,13 @@ export function createListDirTool(workspace: WorkspaceService) {
       schema: listDirSchema,
     },
   );
+}
+
+/** 把字节数转成人类友好的显示（B / KB / MB） */
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function formatError(err: unknown, p: string): string {

@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -20,12 +21,15 @@ import type {
   HistorySearchHit,
   HistorySession,
 } from './history/history.types';
+import { SddService } from './sdd/sdd.service';
+import type { SddPhase, SddState } from './sdd/sdd.types';
 
 @Controller('agent')
 export class AgentController {
   constructor(
     private readonly agentService: AgentService,
     private readonly historyService: HistoryService,
+    private readonly sddService: SddService,
   ) {}
 
   /**
@@ -173,5 +177,82 @@ export class AgentController {
       throw new HttpException('session not found', HttpStatus.NOT_FOUND);
     }
     return { ok };
+  }
+
+  // ===================== SDD 阶段闸门 =====================
+
+  /**
+   * 批准某个 feature 的当前阶段，允许其进入下一阶段。
+   * POST /agent/sdd/approve
+   * body: { featureId: string, phase: 'specify' | 'plan' | 'tasks' }
+   */
+  @Post('sdd/approve')
+  async approveSdd(
+    @Body() body: { featureId?: string; phase?: string },
+  ): Promise<{ ok: true; state: SddState }> {
+    const featureId = body?.featureId;
+    const phase = body?.phase as SddPhase | undefined;
+    if (!featureId || !phase) {
+      throw new HttpException(
+        'featureId 与 phase 必填',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (phase === 'implement') {
+      throw new HttpException(
+        'implement 是终态，不接受批准',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!['specify', 'plan', 'tasks'].includes(phase)) {
+      throw new HttpException('非法 phase', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      const state = await this.sddService.approve(featureId, phase);
+      return { ok: true, state };
+    } catch (err) {
+      throw new HttpException(
+        (err as Error).message,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * 读取指定 feature × 阶段的产物 markdown。
+   * GET /agent/sdd/artifact?featureId=xxx&phase=implement
+   */
+  @Get('sdd/artifact')
+  async getSddArtifact(
+    @Query('featureId') featureId?: string,
+    @Query('phase') phaseRaw?: string,
+  ): Promise<{ featureId: string; phase: SddPhase; path: string; content: string }> {
+    const phase = phaseRaw as SddPhase | undefined;
+    if (!featureId || !phase) {
+      throw new HttpException(
+        'featureId 与 phase 必填',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!['specify', 'plan', 'tasks', 'implement'].includes(phase)) {
+      throw new HttpException('非法 phase', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      const items = await this.sddService.readArtifact(featureId, phase);
+      const hit = items.find((it) => it.phase === phase);
+      if (!hit) {
+        throw new HttpException(
+          `feature "${featureId}" 的 ${phase} 阶段尚未生成`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return { featureId, phase, path: hit.path, content: hit.content };
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      throw new HttpException(
+        (err as Error).message,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 }

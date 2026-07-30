@@ -70,6 +70,8 @@ export interface UsageBlock {
   totalTokens: number;
   /** 本轮参与统计的 LLM 调用次数 */
   llmCalls: number;
+  /** 本轮实际使用的模型名（如 deepseek-v4-flash），可选 */
+  model?: string;
 }
 
 /**

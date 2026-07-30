@@ -16,6 +16,8 @@ export interface TokenUsage {
   totalTokens: number;
   /** 本轮参与统计的 LLM 调用次数（即 AIMessage 数量） */
   llmCalls: number;
+  /** 本轮实际使用的模型名，由调用方在收尾时挂载 */
+  model?: string;
 }
 
 /**

@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChatOpenAI } from '@langchain/openai';
+import type { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { loadMemoryConfig, type MemoryConfig } from './memory.config';
 import { MEMORY_FLUSH_SYSTEM_PROMPT } from '../config/system-prompt';
+import { LlmService } from '../llm/llm.service';
 import type {
   FlushInput,
   FlushResult,
@@ -35,12 +36,15 @@ export class MemoryService {
   /** 攒够 N 轮再 flush 的计数器（进程内，重启即清零） */
   private pendingTurns = 0;
 
-  /** 用于 Flush 摘要的 LLM 客户端；未配置 DEEPSEEK_API_KEY 时为 null */
+  /** 用于 Flush 摘要的 LLM 客户端；未配置 fast 档时为 null */
   private readonly summarizer: ChatOpenAI | null;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private readonly llmService: LlmService,
+  ) {
     this.config = loadMemoryConfig(configService);
-    this.summarizer = this.createSummarizer();
+    this.summarizer = this.llmService.get('fast');
   }
 
   // ===================== 读 =====================
@@ -138,7 +142,7 @@ export class MemoryService {
     const empty: FlushResult = { written: false, file, summary: '' };
 
     if (!this.summarizer) {
-      this.logger.debug('未配置 DEEPSEEK_API_KEY，跳过 Memory Flush');
+      this.logger.debug('未配置 LLM_FAST_API_KEY，跳过 Memory Flush');
       return empty;
     }
     if (input.messages.length < this.config.flushMinMessages) {
@@ -168,20 +172,6 @@ export class MemoryService {
   }
 
   // ===================== 私有辅助 =====================
-
-  private createSummarizer(): ChatOpenAI | null {
-    const apiKey = this.configService.get<string>('DEEPSEEK_API_KEY');
-    if (!apiKey) return null;
-    const baseURL = this.configService.get<string>('DEEPSEEK_API_URL');
-    const model = this.configService.get<string>('DEEPSEEK_MODEL');
-    return new ChatOpenAI({
-      model,
-      temperature: 0,
-      apiKey,
-      configuration: { baseURL },
-    });
-  }
-
   private async summarize(messages: MemoryMessage[]): Promise<string> {
     if (!this.summarizer) return '';
     const transcript = messages

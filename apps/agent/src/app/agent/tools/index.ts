@@ -53,7 +53,7 @@ export function buildBaseTools(
       enabled: isSearchSubagentAvailable,
       factory: () => createSearchSubagentTool(),
       fallbackMessage:
-        '未检测到 TAVILY_API_KEY 或 DEEPSEEK_API_KEY，search subagent 将不可用',
+        '未检测到 TAVILY_API_KEY 或 LLM_FAST_API_KEY，search subagent 将不可用',
     },
     {
       name: 'read_memory',

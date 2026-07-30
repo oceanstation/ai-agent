@@ -1,5 +1,9 @@
 <template>
   <div class="usage">
+    <span
+      v-if="model"
+      class="usage__model"
+    >{{ model }}</span>
     <span title="本轮 token 总量">{{ totalTokens.toLocaleString() }}tk</span>
     <span title="输入 token">↑{{ inputTokens.toLocaleString() }}</span>
     <span title="输出 token">↓{{ outputTokens.toLocaleString() }}</span>
@@ -13,6 +17,7 @@ defineProps<{
   outputTokens: number;
   totalTokens: number;
   llmCalls: number;
+  model?: string;
 }>();
 </script>
 
@@ -31,5 +36,9 @@ defineProps<{
 
   transform: scale(0.75); /* 视觉字号 ≈ 7.5px */
   transform-origin: left top;
+}
+
+.usage__model {
+  color: #6e7781;
 }
 </style>

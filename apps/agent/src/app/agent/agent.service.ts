@@ -1,15 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChatOpenAI } from '@langchain/openai';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { buildBaseTools } from './tools';
 import { buildSystemPrompt } from './config/system-prompt';
 import { loadMcpConfig, type McpConfig } from './config/mcp.config';
+import { LlmService, type ModelTier } from './llm/llm.service';
 import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
 import { SddService } from './sdd/sdd.service';
+import type { SddView } from './sdd/sdd.types';
 import { SkillService } from './skills/skill.service';
 import { WorkspaceService } from './workspace/workspace.service';
 import { extractMessageText, sumTokenUsage } from './agent.types';
@@ -31,11 +32,11 @@ export class AgentService implements OnModuleInit {
 
   /** 每次 stream 前根据最新 memory 上下文重建，避免"重启才生效"问题 */
   private baseTools: StructuredToolInterface[] = [];
-  private baseModel: ChatOpenAI | null = null;
   private mcpConfig: McpConfig = { enabled: false, client: { mcpServers: {} } };
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly llmService: LlmService,
     private readonly memoryService: MemoryService,
     private readonly historyService: HistoryService,
     private readonly skillService: SkillService,
@@ -44,21 +45,11 @@ export class AgentService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    const deepseekKey = this.configService.get<string>('DEEPSEEK_API_KEY');
-    if (!deepseekKey) {
-      this.logger.warn('未检测到 DEEPSEEK_API_KEY，AgentService 将不可用');
+    // 模型实例改由 LlmService 惰性构造；这里只做 fast 档就绪检查
+    if (!this.llmService.get('fast')) {
+      this.logger.warn('fast 档模型未配置，AgentService 将不可用');
       return;
     }
-
-    const baseURL = this.configService.get<string>('DEEPSEEK_API_URL');
-    const deepseekModel = this.configService.get<string>('DEEPSEEK_MODEL');
-
-    this.baseModel = new ChatOpenAI({
-      model: deepseekModel,
-      temperature: 0,
-      apiKey: deepseekKey,
-      configuration: { baseURL },
-    });
     this.baseTools = buildBaseTools({
       memoryService: this.memoryService,
       skillService: this.skillService,
@@ -68,12 +59,13 @@ export class AgentService implements OnModuleInit {
     this.mcpConfig = loadMcpConfig(this.configService);
   }
 
-  /** 守卫函数：确保依赖已初始化 */
+  /** 守卫函数：确保 fast 档模型已配置 */
   private ensureReady() {
-    if (!this.baseModel) {
-      throw new Error('Agent 尚未初始化，请检查 DEEPSEEK_API_KEY 是否配置');
+    const fast = this.llmService.get('fast');
+    if (!fast) {
+      throw new Error('Agent 尚未初始化，请检查 LLM_FAST_API_KEY 是否配置');
     }
-    return this.baseModel;
+    return fast;
   }
 
   /**
@@ -82,15 +74,16 @@ export class AgentService implements OnModuleInit {
    * 之所以不复用全局单例：MEMORY.md 允许用户手动编辑，
    * 每次调用重建可以让改动 **无需重启进程即生效**。
    * 重建开销主要是拼字符串 + 构造对象，忽略不计。
+   *
+   * `tier` 决定本轮使用哪档模型：由 stream() 侧的路由器决定。
    */
-  private async createAgentWithMemory() {
-    const model = this.ensureReady();
+  private async createAgentWithMemory(tier: ModelTier, sddView: SddView) {
+    const model = this.llmService.get(tier) ?? this.ensureReady();
 
     // 组织 systemPrompt
     const ctx = await this.memoryService.buildContext();
     const skills = this.skillService.list(); // Skill 元数据（渐进式披露）
     const workspace = this.workspaceService.getConfig();
-    const sddView = await this.sddService.buildContext();
     const systemPrompt = buildSystemPrompt(
       ctx,
       skills,
@@ -123,12 +116,18 @@ export class AgentService implements OnModuleInit {
    *   2) 结束后把本轮用户输入与 assistant 消息写回 SQLite，供下次继续与前端回放使用。
    */
   async *stream(input: AgentStreamInput): AsyncGenerator<AgentInvokeResult> {
-    const agent = await this.createAgentWithMemory();
+    // 目前所有请求统一走 fast；未来需要按任务分层时（例如 SDD 用 pro / 长上下文用别的档），
+    // 在此处根据 sddView / userInput 等信号计算 tier 即可。
+    const tier: ModelTier = 'fast';
 
-    // 1) 拼装消息序列：历史 + 本轮 user
+    const sddView = await this.sddService.buildContext();
     const historyMessages = input.sessionId
       ? this.loadHistoryAsChatMessages(input.sessionId)
       : [];
+
+    const agent = await this.createAgentWithMemory(tier, sddView);
+
+    // 1) 拼装消息序列：历史 + 本轮 user
     const messages: [ 'user' | 'assistant', string ][] = [
       ...historyMessages.map(
         (m) => [m.role, m.content] as ['user' | 'assistant', string],
@@ -165,6 +164,7 @@ export class AgentService implements OnModuleInit {
       // Token 统计：累加本轮所有 AIMessage 的 usage_metadata。
       // 一次 agent 交互可能包含多轮 LLM 调用（工具往返），因此需要累加。
       const usage = sumTokenUsage(lastChunk.messages);
+      usage.model = this.llmService.get(tier)?.model;
       lastChunk.usage = usage;
 
       yield { messages: [], usage } satisfies AgentInvokeResult;

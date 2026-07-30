@@ -97,6 +97,7 @@ export class AgentController {
                   outputTokens: lastUsage.outputTokens,
                   totalTokens: lastUsage.totalTokens,
                   llmCalls: lastUsage.llmCalls,
+                  model: lastUsage.model,
                 } satisfies ContentBlock,
               });
             }

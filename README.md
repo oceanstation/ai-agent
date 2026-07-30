@@ -38,7 +38,7 @@ pnpm install
 
 ```sh
 cp .env.example .env
-# 至少填写 DEEPSEEK_API_KEY，其余项都有内置默认值
+# 至少填写 LLM_FAST_API_KEY，其余项都有内置默认值
 ```
 
 关键变量速查：
@@ -46,7 +46,8 @@ cp .env.example .env
 | 分组 | 变量 | 说明 |
 |---|---|---|
 | 服务 | `PORT` | NestJS 端口，默认 `3000` |
-| LLM | `DEEPSEEK_API_KEY` / `DEEPSEEK_API_URL` / `DEEPSEEK_MODEL` | 主模型 & Memory Flush 摘要模型 |
+| LLM · fast | `LLM_FAST_API_KEY` / `LLM_FAST_API_URL` / `LLM_FAST_MODEL` | 默认对话 & Memory Flush & search subagent |
+| LLM · pro | `LLM_PRO_API_KEY` / `LLM_PRO_API_URL` / `LLM_PRO_MODEL` | 深度推理（如 SDD 四阶段）；缺失字段从 fast 补齐 |
 | 搜索 | `TAVILY_API_KEY` | 联网搜索工具（可选） |
 | MCP | `AMAP_MCP_KEY` | 高德地图 MCP（可选） |
 | 历史 | `HISTORY_DB_PATH` | SQLite 路径，默认 `.data/history.db` |

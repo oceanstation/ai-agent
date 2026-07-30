@@ -196,6 +196,7 @@ const rendererProps = (block: ContentBlock): Record<string, unknown> => {
         outputTokens: block.outputTokens,
         totalTokens: block.totalTokens,
         llmCalls: block.llmCalls,
+        model: block.model,
       };
     case 'spec_gate':
       return {

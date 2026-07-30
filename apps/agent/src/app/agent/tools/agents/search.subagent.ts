@@ -63,20 +63,20 @@ const SEARCH_SYSTEM_PROMPT = `你是一个专业的调研助手（Search Subagen
  *
  * 需同时具备：
  * - TAVILY_API_KEY：subagent 内部搜索工具的凭据
- * - DEEPSEEK_API_KEY：subagent 自己的 LLM 凭据（不再从主 Agent 透传）
+ * - LLM_FAST_API_KEY：subagent 自己的 LLM 凭据（不再从主 Agent 透传）
  *
  * 由 buildBaseTools 的 enabled 短路判断使用，避免装配时抛错。
  */
 export function isSearchSubagentAvailable(): boolean {
-  return !!process.env.TAVILY_API_KEY && !!process.env.DEEPSEEK_API_KEY;
+  return !!process.env.TAVILY_API_KEY && !!process.env.LLM_FAST_API_KEY;
 }
 
 function buildSubagentModel(): ChatOpenAI {
   return new ChatOpenAI({
-    model: process.env.DEEPSEEK_MODEL,
+    model: process.env.LLM_FAST_MODEL,
     temperature: 0,
-    apiKey: process.env.DEEPSEEK_API_KEY,
-    configuration: { baseURL: process.env.DEEPSEEK_API_URL },
+    apiKey: process.env.LLM_FAST_API_KEY,
+    configuration: { baseURL: process.env.LLM_FAST_API_URL },
   });
 }
 

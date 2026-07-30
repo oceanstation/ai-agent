@@ -15,6 +15,7 @@
   },
   "nx": {
     "sourceRoot": "packages/common/src",
-    "projectType": "library"
+    "projectType": "library",
+    "tags": ["type:lib"]
   }
 }

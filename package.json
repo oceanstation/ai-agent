@@ -11,7 +11,12 @@
     "ui-astro:start": "nx start @ai-agent/ui-astro",
     "build": "nx run-many -t build -p @ai-agent/agent @ai-agent/ui",
     "lint": "nx run-many -t lint",
-    "test": "nx run-many -t test"
+    "test": "nx run-many -t test",
+    "affected:lint": "nx affected -t lint",
+    "affected:test": "nx affected -t test",
+    "affected:build": "nx affected -t build",
+    "affected:typecheck": "nx affected -t typecheck",
+    "affected:graph": "nx graph --affected"
   },
   "private": true,
   "dependencies": {

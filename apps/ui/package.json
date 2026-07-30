@@ -3,6 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "nx": {
+    "projectType": "application",
+    "tags": ["type:app"]
+  },
   "dependencies": {
     "@ai-agent/common": "workspace:*",
     "@microsoft/fetch-event-source": "^2.0.1",

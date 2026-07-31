@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { loadMemoryConfig, type MemoryConfig } from './memory.config';
 import { MEMORY_FLUSH_SYSTEM_PROMPT } from '../config/system-prompt';
 import { LlmService } from '../llm/llm.service';
+import { formatDate, formatTime } from '../utils/date';
 import type {
   FlushInput,
   FlushResult,
@@ -212,20 +213,4 @@ export class MemoryService {
   private dailyFilePath(date: Date): string {
     return path.join(this.config.dailyDir, `${formatDate(date)}.md`);
   }
-}
-
-/** yyyy-mm-dd（本地时区） */
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** HH:mm:ss（本地时区） */
-function formatTime(d: Date): string {
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${hh}:${mm}:${ss}`;
 }

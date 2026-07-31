@@ -10,7 +10,6 @@ import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
 import { SddService } from './sdd/sdd.service';
-import type { SddView } from './sdd/sdd.types';
 import { SkillService } from './skills/skill.service';
 import { WorkspaceService } from './workspace/workspace.service';
 import { extractMessageText, sumTokenUsage } from './agent.types';
@@ -45,7 +44,6 @@ export class AgentService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    // 模型实例改由 LlmService 惰性构造；这里只做 fast 档就绪检查
     if (!this.llmService.get('fast')) {
       this.logger.warn('fast 档模型未配置，AgentService 将不可用');
       return;
@@ -77,13 +75,14 @@ export class AgentService implements OnModuleInit {
    *
    * `tier` 决定本轮使用哪档模型：由 stream() 侧的路由器决定。
    */
-  private async createAgentWithMemory(tier: ModelTier, sddView: SddView) {
+  private async createAgent(tier: ModelTier) {
     const model = this.llmService.get(tier) ?? this.ensureReady();
 
     // 组织 systemPrompt
     const ctx = await this.memoryService.buildContext();
     const skills = this.skillService.list(); // Skill 元数据（渐进式披露）
     const workspace = this.workspaceService.getConfig();
+    const sddView = await this.sddService.buildContext();
     const systemPrompt = buildSystemPrompt(
       ctx,
       skills,
@@ -116,16 +115,13 @@ export class AgentService implements OnModuleInit {
    *   2) 结束后把本轮用户输入与 assistant 消息写回 SQLite，供下次继续与前端回放使用。
    */
   async *stream(input: AgentStreamInput): AsyncGenerator<AgentInvokeResult> {
-    // 目前所有请求统一走 fast；未来需要按任务分层时（例如 SDD 用 pro / 长上下文用别的档），
-    // 在此处根据 sddView / userInput 等信号计算 tier 即可。
     const tier: ModelTier = 'fast';
 
-    const sddView = await this.sddService.buildContext();
     const historyMessages = input.sessionId
       ? this.loadHistoryAsChatMessages(input.sessionId)
       : [];
 
-    const agent = await this.createAgentWithMemory(tier, sddView);
+    const agent = await this.createAgent(tier);
 
     // 1) 拼装消息序列：历史 + 本轮 user
     const messages: [ 'user' | 'assistant', string ][] = [
@@ -161,8 +157,6 @@ export class AgentService implements OnModuleInit {
 
     // 2) 收尾：统计 token 用量 + 写回 SQLite + 触发 Memory Flush
     if (lastChunk) {
-      // Token 统计：累加本轮所有 AIMessage 的 usage_metadata。
-      // 一次 agent 交互可能包含多轮 LLM 调用（工具往返），因此需要累加。
       const usage = sumTokenUsage(lastChunk.messages);
       usage.model = this.llmService.get(tier)?.model;
       lastChunk.usage = usage;

@@ -82,13 +82,7 @@
 
 <script setup lang="ts">
 import { formatRelativeTime } from '@/utils/time';
-
-export interface SessionSummary {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-}
+import type { SessionSummary } from '@/api';
 
 defineProps<{
   sessions: SessionSummary[];

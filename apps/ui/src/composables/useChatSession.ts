@@ -1,6 +1,7 @@
 import { ref } from 'vue';
 import type { ContentBlock } from '@ai-agent/common';
-import type { SessionSummary } from '@/components/SessionPanel.vue';
+import * as api from '@/api';
+
 import { generateId } from '@/utils/id';
 
 /**
@@ -11,17 +12,6 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   block: ContentBlock;
-}
-
-/** 后端 HistoryMessage 的最小契约（与 apps/agent/.../history.types.ts 对齐） */
-export interface HistoryMessageDTO {
-  id?: number;
-  sessionId: string;
-  role: 'user' | 'assistant' | 'tool' | 'system';
-  content: string;
-  toolName?: string | null;
-  raw?: string | null;
-  createdAt: number;
 }
 
 const SESSION_STORAGE_KEY = 'ai-agent:sessionId';
@@ -51,7 +41,7 @@ function safeSetSessionId(id: string | null) {
  * 把后端持久化的 HistoryMessage 还原为前端 ChatMessage。
  * 用户/助手直接映射为 text；tool 消息尽量结构化（Tavily 结果 → list；其余 → json）。
  */
-function historyToChatMessage(msg: HistoryMessageDTO): ChatMessage | null {
+function historyToChatMessage(msg: api.HistoryMessageDTO): ChatMessage | null {
   if (msg.role === 'system') return null;
   if (!msg.content?.trim()) return null;
 
@@ -133,7 +123,7 @@ export function useChatSession() {
     localStorage.getItem(SESSION_STORAGE_KEY),
   );
   const messages = ref<ChatMessage[]>([]);
-  const sessionList = ref<SessionSummary[]>([]);
+  const sessionList = ref<api.SessionSummary[]>([]);
   const sessionsLoading = ref(false);
 
   /** 幂等地覆写 sessionId，同步写回 localStorage */
@@ -159,21 +149,18 @@ export function useChatSession() {
     if (!id) return;
 
     try {
-      const resp = await fetch(
-        `/agent/sessions/${encodeURIComponent(id)}/messages`,
-      );
-      if (resp.status === 404) {
-        clearSessionId();
-        return;
-      }
-      if (!resp.ok) return;
-
-      const rows = (await resp.json()) as HistoryMessageDTO[];
+      const rows = await api.fetchSessionMessages(id);
       const restored = rows
         .map(historyToChatMessage)
         .filter((m): m is ChatMessage => m !== null);
       if (restored.length) messages.value = restored;
     } catch (err) {
+      // 404（session 已被清理）→ 清空本地 id，等下一轮对话新建；
+      // 其余 HTTP 错误静默降级，仅网络/解析异常告警。
+      if (err instanceof api.ApiError) {
+        if (err.status === 404) clearSessionId();
+        return;
+      }
       console.warn('恢复历史消息失败:', err);
     }
   };
@@ -182,9 +169,7 @@ export function useChatSession() {
   const fetchSessions = async () => {
     sessionsLoading.value = true;
     try {
-      const resp = await fetch('/agent/sessions');
-      if (!resp.ok) return;
-      sessionList.value = (await resp.json()) as SessionSummary[];
+      sessionList.value = await api.fetchSessions();
     } catch (err) {
       console.warn('拉取会话列表失败:', err);
     } finally {
@@ -200,13 +185,11 @@ export function useChatSession() {
     await restoreHistory();
   };
 
-  /** 新建会话：POST /agent/sessions 拿到 id 后置顶列表并切换 */
+  /** 新建会话：拿到 id 后置顶列表并切换 */
   const createSession = async () => {
     try {
       sessionsLoading.value = true;
-      const resp = await fetch('/agent/sessions', { method: 'POST' });
-      if (!resp.ok) return;
-      const created = (await resp.json()) as SessionSummary;
+      const created = await api.createSession();
       sessionList.value = [created, ...sessionList.value];
       persistSessionId(created.id);
       messages.value = [];
@@ -222,10 +205,7 @@ export function useChatSession() {
     if (!window.confirm('确定删除该会话？删除后无法恢复。')) return;
 
     try {
-      const resp = await fetch(`/agent/sessions/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
-      if (!resp.ok) return;
+      await api.deleteSession(id);
 
       const current = id === sessionId.value;
       if (current) {

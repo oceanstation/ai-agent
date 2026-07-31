@@ -95,6 +95,7 @@
 
 <script setup lang="ts">
 import MarkdownBlock from '@/components/MarkdownBlock.vue';
+import { approveSddPhase, fetchSddArtifact } from '@/api';
 import type { SpecGatePhase, SpecGatePhaseStatus } from '@ai-agent/common';
 import { computed, ref } from 'vue';
 
@@ -133,16 +134,7 @@ const togglePreview = async () => {
   previewLoading.value = true;
   previewError.value = '';
   try {
-    const params = new URLSearchParams({
-      featureId: props.featureId,
-      phase: props.phase,
-    });
-    const resp = await fetch(`/agent/sdd/artifact?${params.toString()}`);
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      throw new Error(text || `HTTP ${resp.status}`);
-    }
-    const data = (await resp.json()) as { content: string };
+    const data = await fetchSddArtifact(props.featureId, props.phase);
     previewContent.value = data.content ?? '';
   } catch (err) {
     previewError.value = (err as Error).message || '加载失败';
@@ -184,15 +176,7 @@ const onApprove = async () => {
   approving.value = true;
   error.value = '';
   try {
-    const resp = await fetch('/agent/sdd/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ featureId: props.featureId, phase: props.phase }),
-    });
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      throw new Error(text || `HTTP ${resp.status}`);
-    }
+    await approveSddPhase(props.featureId, props.phase);
     approved.value = true;
     // 通知父组件：批准已落库，可以触发下一轮 agent 继续推进
     emit('approved', { featureId: props.featureId, phase: props.phase });

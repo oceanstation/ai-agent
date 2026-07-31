@@ -158,8 +158,8 @@ import SpecGateBlock from '@/components/SpecGateBlock.vue';
 import ToolBlock from '@/components/ToolBlock.vue';
 import UsageBlock from '@/components/UsageBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
-import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { computed, onMounted, ref, type Component } from 'vue';
+import { invokeAgent, searchSession, ApiError } from '@/api';
 import { formatSearchHits } from '@/utils/searchHighlight';
 import { useChatSession } from '@/composables/useChatSession';
 
@@ -275,17 +275,6 @@ const sendButtonTitle = computed(() => {
   return '发送';
 });
 
-/** 后端 FTS5 命中结构（与 apps/agent/.../history.types.ts 对齐） */
-interface HistorySearchHitDTO {
-  id?: number;
-  sessionId: string;
-  role: 'user' | 'assistant' | 'tool' | 'system';
-  content: string;
-  toolName?: string | null;
-  createdAt: number;
-  snippet: string; // 已在服务端拼好 <mark> 高亮的片段
-}
-
 const scrollToBottom = () => {
   setTimeout(() => {
     if (messageContainer.value) {
@@ -328,23 +317,20 @@ const searchKnowledgeBase = async (query: string) => {
 
   try {
     isLoading.value = true;
-    const params = new URLSearchParams({ q: query });
-    const url = `/agent/sessions/${encodeURIComponent(sessionId.value)}/search?${params.toString()}`;
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      pushAssistantBlock({
-        type: 'text',
-        text: `知识库检索失败：HTTP ${resp.status}`,
-      });
-      return;
-    }
-    const hits = (await resp.json()) as HistorySearchHitDTO[];
+    const hits = await searchSession(sessionId.value, query);
     // 命中格式化 / 高亮 / 折叠块渲染均下沉到公共方法，见 utils/searchHighlight.ts
     pushAssistantBlock({
       type: 'text',
       text: formatSearchHits(hits, query),
     });
   } catch (err) {
+    if (err instanceof ApiError) {
+      pushAssistantBlock({
+        type: 'text',
+        text: `知识库检索失败：HTTP ${err.status}`,
+      });
+      return;
+    }
     console.error('知识库检索异常:', err);
     pushAssistantBlock({
       type: 'text',
@@ -393,20 +379,16 @@ const runAgentTurn = async (message: string) => {
   try {
     isLoading.value = true;
 
-    // 拼接 query：首次会话 sessionId 为空，后端会新建并于首帧下发
-    const params = new URLSearchParams({ message });
-    if (sessionId.value) params.set('sessionId', sessionId.value);
-
-    await fetchEventSource(`/agent/invoke?${params.toString()}`, {
-      onmessage(event) {
-        if (!event.data) return;
-
+    await invokeAgent({
+      message,
+      sessionId: sessionId.value,
+      onMessage(data) {
         let block: ContentBlock;
         try {
-          block = JSON.parse(event.data) as ContentBlock;
+          block = JSON.parse(data) as ContentBlock;
         } catch {
           // 兜底：非 JSON 字符串按文本处理
-          block = { type: 'text', text: event.data };
+          block = { type: 'text', text: data };
         }
 
         // 兜底：老协议 { done: true } → done block
@@ -422,7 +404,7 @@ const runAgentTurn = async (message: string) => {
 
         pushAssistantBlock(block);
       },
-      onerror(error) {
+      onError(error) {
         console.error('Stream error:', error);
       },
     });

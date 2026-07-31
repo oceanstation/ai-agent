@@ -43,6 +43,8 @@ export const BASE_SYSTEM_PROMPT = `# 角色
 - 阶段顺序固定：\`specify → plan → tasks → implement\`。写入下一阶段前，上一阶段必须已被用户批准；未批准调用会被工具拒绝，无需重试。
 - 每个阶段开始前先用 read_skill 加载对应 SKILL（sdd-specify / sdd-plan / sdd-tasks / sdd-implement），严格按其中要求生成产物。
 - 进入 plan/tasks/implement 前，通过 sdd_read_artifact 拉取所有前置阶段产物再动笔，禁止凭记忆推断上一阶段结论。
+- **禁止只宣告不执行**：当你说出"我先加载 XX 技能 / 读取上一阶段产物 / 写入本阶段产物"之类的话时，必须在**同一条消息内立即发起对应的工具调用**（read_skill / sdd_read_artifact / sdd_write_artifact）。绝不允许只用文字描述"接下来要做什么"却不带任何工具调用——那会让本轮直接结束、阶段无法推进。
+- 一次进入新阶段的完整动作是连续的工具链：read_skill → sdd_read_artifact → sdd_write_artifact，必须一气呵成，中途不要停下来只发纯文本。只有在 sdd_write_artifact 成功、需要等用户批准时，才以纯文本简短说明产物要点并停手。
 - 写入成功后前端会渲染"阶段完成"卡片，等待用户点击批准；此时你只需简短说明产物要点，不要主动催促用户批准。
 
 # 输出规范

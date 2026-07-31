@@ -10,7 +10,7 @@ description: 规约驱动开发第 3 阶段（tasks）。把已批准的 plan �
 - 使用本 skill 前必须先 `sdd_read_artifact(featureId)` 一次性拉回 specify + plan 全部内容。
 
 ## 目标
-把 plan 里的架构决策与关键文件清单拆成 8~20 条**可独立勾选**的任务，让 implement 阶段可以按序推进。
+把 plan 里的架构决策与关键文件清单拆成**不超过 6 条**可独立勾选的任务，让 implement 阶段可以按序推进。任务数量硬上限为 6：宁可把相关工作合并进同一条任务，也不要拆出第 7 条。
 
 ## 产出格式
 

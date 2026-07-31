@@ -38,6 +38,15 @@ export function createWriteArtifactTool(sdd: SddService) {
           phase,
           content,
         );
+
+        // 仅在"确需用户审批"或"implement 收尾展示"时下发阶段卡片。
+        // 已批准阶段的过程性回写（典型：implement 勾选 tasks.md 清单）不再刷卡，
+        // 否则每完成一项都会在对话流里多冒出一张 spec_gate 卡片，观感像重复弹窗。
+        const shouldEmitGate = pendingApproval || phase === 'implement';
+        if (!shouldEmitGate) {
+          return `已更新 ${path}（${phase} 阶段清单，属过程性回写，无需重新审批）`;
+        }
+
         const signal: SddGateSignal = {
           __sddGate: true,
           featureId,

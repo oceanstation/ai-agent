@@ -96,7 +96,10 @@ export class SddService {
    * 闸门规则：
    *   - `specify` 永远可写；
    *   - `plan` / `tasks` / `implement`：前一个阶段必须已批准。
-   *   - 覆写当前阶段本身允许，会重置 approvedAt。
+   *   - 覆写已存在的阶段**保留其批准状态**（见 {@link recordPhase}）。
+   *
+   * pendingApproval：仅当该阶段确实"待批准"（非 implement 且尚未批准）时为 true。
+   * 已批准阶段被覆写（如 implement 勾选 tasks 清单）不会再次要求批准。
    */
   async writeArtifact(
     featureId: string,
@@ -124,9 +127,12 @@ export class SddService {
       const nextState: SddState = this.recordPhase(state, phase, now);
       await this.persistState(nextState);
 
+      const rec = nextState.history.find((h) => h.phase === phase);
+      const pendingApproval = phase !== 'implement' && rec?.approvedAt == null;
+
       return {
         path: this.toRelative(abs),
-        pendingApproval: phase !== 'implement',
+        pendingApproval,
         timeline: this.buildTimeline(nextState),
       };
     });
@@ -217,7 +223,16 @@ export class SddService {
     };
   }
 
-  /** 把一次写入合并进 state：覆写同阶段则重置 approvedAt */
+  /**
+   * 把一次写入合并进 state。
+   *
+   * 关键：**覆写已存在的阶段不会清空其批准状态**。
+   * 早期实现会在覆写时把 approvedAt 置空，导致 implement 阶段回写 tasks.md
+   * 勾选复选框（`- [ ]` → `- [x]`）时，tasks 的批准被悄悄撤销 —— 既弹出重复的
+   * 审批卡片，又会让随后写 implement 时报"需先批准 tasks"。现在覆写只刷新
+   * writtenAt、保留原批准：审批是用户对"该阶段是否成立"的一次性决定，
+   * 过程性回写不应触发重新审批。未批准阶段覆写后仍是未批准（保持 pending）。
+   */
   private recordPhase(
     state: SddState,
     phase: SddPhase,
@@ -226,7 +241,7 @@ export class SddService {
     const existing = state.history.find((h) => h.phase === phase);
     if (existing) {
       existing.writtenAt = now;
-      existing.approvedAt = null;
+      // 保留 existing.approvedAt：覆写不撤销既有批准
     } else {
       const rec: SddPhaseRecord = { phase, writtenAt: now, approvedAt: null };
       state.history.push(rec);

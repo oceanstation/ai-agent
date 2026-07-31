@@ -65,7 +65,7 @@ export interface SddGateSignal {
   phase: SddPhase;
   /** 相对 SDD 根目录的产物路径，例如 `user-avatar/plan.md` */
   path: string;
-  /** implement 阶段成功时为 false，其余阶段写入后为 true */
+  /** 仅当该阶段确实待批准（非 implement 且尚未批准）时为 true；已批准阶段被覆写为 false */
   pendingApproval: boolean;
   /** 全量 4 阶段时间线状态（前端渲染进度条使用） */
   timeline: Record<SddPhase, SddPhaseStatus>;

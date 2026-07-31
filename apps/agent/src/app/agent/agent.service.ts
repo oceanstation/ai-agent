@@ -6,6 +6,7 @@ import { buildBaseTools } from './tools';
 import { buildSystemPrompt } from './config/system-prompt';
 import { loadMcpConfig, type McpConfig } from './config/mcp.config';
 import { LlmService, type ModelTier } from './llm/llm.service';
+import { IntentRouterService } from './llm/intent-router.service';
 import { MemoryService } from './memory/memory.service';
 import type { MemoryMessage } from './memory/memory.types';
 import { HistoryService } from './history/history.service';
@@ -36,6 +37,7 @@ export class AgentService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly llmService: LlmService,
+    private readonly intentRouter: IntentRouterService,
     private readonly memoryService: MemoryService,
     private readonly historyService: HistoryService,
     private readonly skillService: SkillService,
@@ -115,7 +117,8 @@ export class AgentService implements OnModuleInit {
    *   2) 结束后把本轮用户输入与 assistant 消息写回 SQLite，供下次继续与前端回放使用。
    */
   async *stream(input: AgentStreamInput): AsyncGenerator<AgentInvokeResult> {
-    const tier: ModelTier = 'fast';
+    // 通过意图识别决定本轮使用哪档模型；异常/未配置时会回退 fast
+    const tier: ModelTier = await this.intentRouter.route(input.message);
 
     const historyMessages = input.sessionId
       ? this.loadHistoryAsChatMessages(input.sessionId)
@@ -139,10 +142,12 @@ export class AgentService implements OnModuleInit {
     // 注意：本轮的 user 消息也在基线内（historyMessages.length + 1），因此不会被
     // 再次写回 DB —— persistTurn 会单独用 input.message 落库 user 侧。
     const baseline = historyMessages.length + 1;
+    const recursionLimit =
+      Number(this.configService.get('AGENT_RECURSION_LIMIT')) || 100;
 
     const iterable = await agent.stream(
       { messages },
-      { streamMode: 'values' },
+      { streamMode: 'values', recursionLimit },
     );
     let lastChunk: AgentInvokeResult | null = null;
     for await (const chunk of iterable) {

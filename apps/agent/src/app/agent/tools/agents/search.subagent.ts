@@ -76,6 +76,7 @@ function buildSubagentModel(): ChatOpenAI {
     model: process.env.LLM_FAST_MODEL,
     temperature: 0,
     apiKey: process.env.LLM_FAST_API_KEY,
+    useResponsesApi: true,
     configuration: { baseURL: process.env.LLM_FAST_API_URL },
   });
 }

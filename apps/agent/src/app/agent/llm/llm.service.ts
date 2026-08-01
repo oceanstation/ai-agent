@@ -34,6 +34,7 @@ export class LlmService {
       model: tier === 'pro' ? (proModel ?? fastModel) : fastModel,
       temperature: 0,
       apiKey,
+      useResponsesApi: true,
       configuration: {
         baseURL: this.configService.get<string>('LLM_FAST_API_URL'),
       },

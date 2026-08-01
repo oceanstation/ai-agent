@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { BaseMessage } from '@langchain/core/messages';
-import type { StructuredToolInterface } from '@langchain/core/tools';
 import { buildBaseTools } from './tools';
 import { buildSystemPrompt } from './config/system-prompt';
 import { loadMcpConfig, type McpConfig } from './config/mcp.config';
@@ -18,6 +17,7 @@ import type { AgentInvokeResult } from './agent.types';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 import { createAgent } from 'langchain';
 import { trimMessagesByTokenBudget, type ChatMessageLite } from './utils/token-counter';
+import { parseIntSafe } from './utils/config-parse';
 
 /** Agent 执行输入：文本消息 + 可选的会话上下文 */
 export interface AgentStreamInput {
@@ -30,8 +30,6 @@ export interface AgentStreamInput {
 export class AgentService implements OnModuleInit {
   private readonly logger = new Logger(AgentService.name);
 
-  /** 每次 stream 前根据最新 memory 上下文重建，避免"重启才生效"问题 */
-  private baseTools: StructuredToolInterface[] = [];
   private mcpConfig: McpConfig = { enabled: false, client: { mcpServers: {} } };
 
   constructor(
@@ -50,12 +48,6 @@ export class AgentService implements OnModuleInit {
       this.logger.warn('fast 档模型未配置，AgentService 将不可用');
       return;
     }
-    this.baseTools = buildBaseTools({
-      memoryService: this.memoryService,
-      skillService: this.skillService,
-      workspaceService: this.workspaceService,
-      sddService: this.sddService,
-    });
     this.mcpConfig = loadMcpConfig(this.configService);
   }
 
@@ -76,21 +68,30 @@ export class AgentService implements OnModuleInit {
    * 重建开销主要是拼字符串 + 构造对象，忽略不计。
    *
    * `tier` 决定本轮使用哪档模型：由 stream() 侧的路由器决定。
+   * `sessionId` 用于文件工具的会话隔离（见 WorkspaceService.forSession）。
    */
-  private async createAgent(tier: ModelTier) {
+  private async createAgent(tier: ModelTier, sessionId?: string) {
     const model = this.llmService.get(tier) ?? this.ensureReady();
+
+    // 会话文件隔离：确保该 session 的工作目录存在，并按 session 装配文件类工具。
+    await this.workspaceService.ensureSessionRoot(sessionId);
+    // 工具随 session 绑定
+    const tools = buildBaseTools(
+      {
+        memoryService: this.memoryService,
+        skillService: this.skillService,
+        workspaceService: this.workspaceService,
+        sddService: this.sddService,
+      },
+      sessionId,
+    );
 
     // 组织 systemPrompt
     const ctx = await this.memoryService.buildContext();
     const skills = this.skillService.list(); // Skill 元数据（渐进式披露）
     const workspace = this.workspaceService.getConfig();
     const sddView = await this.sddService.buildContext();
-    const systemPrompt = buildSystemPrompt(
-      ctx,
-      skills,
-      workspace,
-      sddView,
-    );
+    const systemPrompt = buildSystemPrompt(ctx, skills, workspace, sddView);
 
     // MCP 工具列表
     let mcpTools: Awaited<ReturnType<MultiServerMCPClient['getTools']>> = [];
@@ -102,7 +103,7 @@ export class AgentService implements OnModuleInit {
     return createAgent({
       model,
       systemPrompt,
-      tools: [...this.baseTools, ...mcpTools],
+      tools: [...tools, ...mcpTools],
     });
   }
 
@@ -124,7 +125,7 @@ export class AgentService implements OnModuleInit {
       ? this.loadHistoryAsChatMessages(input.sessionId)
       : [];
 
-    const agent = await this.createAgent(tier);
+    const agent = await this.createAgent(tier, input.sessionId);
 
     // 1) 拼装消息序列：历史 + 本轮 user
     const messages: [ 'user' | 'assistant', string ][] = [
@@ -142,8 +143,10 @@ export class AgentService implements OnModuleInit {
     // 注意：本轮的 user 消息也在基线内（historyMessages.length + 1），因此不会被
     // 再次写回 DB —— persistTurn 会单独用 input.message 落库 user 侧。
     const baseline = historyMessages.length + 1;
-    const recursionLimit =
-      Number(this.configService.get('AGENT_RECURSION_LIMIT')) || 100;
+    const recursionLimit = parseIntSafe(
+      this.configService.get<string>('AGENT_RECURSION_LIMIT'),
+      100,
+    );
 
     const iterable = await agent.stream(
       { messages },

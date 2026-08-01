@@ -40,11 +40,19 @@ interface ToolSpec {
 
 /**
  * 构建 Agent 所需的 base 工具集合。
+ *
+ * @param deps 工具依赖
+ * @param sessionId 当前会话 ID；文件类工具（read/write/list/run_command）会据此
+ *   拿到 workspace 的会话作用域视图，实现按 session 的文件隔离。省略则使用共享根。
  */
 export function buildBaseTools(
   deps: BaseToolDeps,
+  sessionId?: string,
 ): StructuredToolInterface[] {
   const { memoryService, skillService, workspaceService, sddService } = deps;
+
+  // 文件类工具绑定到“会话作用域”的 workspace 视图；其余工具与 session 无关。
+  const ws = workspaceService.forSession(sessionId);
 
   // specs 只描述"有哪些工具、什么条件下启用、怎么造"，不做任何真正的动作
   const specs: ToolSpec[] = [
@@ -73,22 +81,22 @@ export function buildBaseTools(
     {
       name: 'read_file',
       enabled: () => true,
-      factory: () => createReadFileTool(workspaceService),
+      factory: () => createReadFileTool(ws),
     },
     {
       name: 'write_file',
       enabled: () => true,
-      factory: () => createWriteFileTool(workspaceService),
+      factory: () => createWriteFileTool(ws),
     },
     {
       name: 'list_dir',
       enabled: () => true,
-      factory: () => createListDirTool(workspaceService),
+      factory: () => createListDirTool(ws),
     },
     {
       name: 'run_command',
       enabled: () => true,
-      factory: () => createRunCommandTool(workspaceService),
+      factory: () => createRunCommandTool(ws),
     },
     {
       name: 'sdd_write_artifact',

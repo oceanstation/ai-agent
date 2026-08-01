@@ -31,6 +31,13 @@ export interface WorkspaceConfig {
    * 采用极简 glob 语义：`**` 匹配任意层级，`*` 匹配单段任意字符。
    */
   denyGlobs: string[];
+  /**
+   * 是否按 sessionId 隔离文件读写：开启后每个会话的 read/write/list/run_command
+   * 都落在 `<root>/<sessionsDir>/<sessionId>/` 子目录内，互不可见。默认 true。
+   */
+  isolateBySession: boolean;
+  /** session 隔离时的子目录容器名（相对 root），默认 `sessions` */
+  sessionsDir: string;
 }
 
 const DEFAULT_MAX_FILE_SIZE = 1024 * 1024; // 1 MB
@@ -92,5 +99,11 @@ export function loadWorkspaceConfig(
       ...DEFAULT_DENY_GLOBS,
       ...parseList(configService.get<string>('WORKSPACE_DENY_GLOBS')),
     ],
+    isolateBySession: parseBool(
+      configService.get<string>('WORKSPACE_ISOLATE_BY_SESSION'),
+      true,
+    ),
+    sessionsDir:
+      configService.get<string>('WORKSPACE_SESSIONS_DIR')?.trim() || 'sessions',
   };
 }

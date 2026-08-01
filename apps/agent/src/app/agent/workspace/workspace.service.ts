@@ -52,14 +52,71 @@ interface OutputBuf {
  */
 @Injectable()
 export class WorkspaceService {
-  private readonly config: WorkspaceConfig;
+  private config: WorkspaceConfig;
+  /**
+   * 本实例的“有效根”。基础实例等于 config.root；经 {@link forSession} 派生的
+   * 会话视图则为 `<config.root>/<sessionsDir>/<sessionId>`。所有路径边界校验都
+   * 以此为基准，从而把沙箱收缩到会话子目录。
+   */
+  private root: string;
 
   constructor(configService: ConfigService) {
     this.config = loadWorkspaceConfig(configService);
+    this.root = this.config.root;
   }
 
   getConfig(): Readonly<WorkspaceConfig> {
     return this.config;
+  }
+
+  /**
+   * 派生一个“换了根”的会话作用域视图，复用同一份 config 与全部沙箱逻辑。
+   *
+   * - 未开启隔离、或未提供 sessionId：返回自身（回退到共享根，行为不变）。
+   * - 否则：有效根收缩为 `<root>/<sessionsDir>/<sanitized sessionId>`，
+   *   其余 session、基础根下的旧文件与 `.specify` 都落在该根之外，自动不可访问。
+   */
+  forSession(sessionId?: string): WorkspaceService {
+    if (!this.config.isolateBySession || !sessionId) return this;
+    /**
+     * 用 Object.create(prototype) 造一个"空壳"实例，
+     * 跳过 constructor —— 不重新走 DI、不重新 loadWorkspaceConfig，
+     * 也不复制方法（原型链上都有）。
+     */
+    const scoped: WorkspaceService = Object.create(WorkspaceService.prototype);
+    scoped.config = this.config;
+    scoped.root = path.join(
+      this.config.root,
+      this.config.sessionsDir,
+      this.sanitizeSessionId(sessionId),
+    );
+    return scoped;
+  }
+
+  /**
+   * 确保当前有效根存在（隔离开启且提供 sessionId 时）。
+   * 让新会话的 `list_dir .`、`run_command` 的 cwd 不至于因目录缺失而报错。
+   */
+  async ensureSessionRoot(sessionId?: string): Promise<void> {
+    if (!this.config.isolateBySession || !sessionId) return;
+    const dir = path.join(
+      this.config.root,
+      this.config.sessionsDir,
+      this.sanitizeSessionId(sessionId),
+    );
+    await fs.mkdir(dir, { recursive: true });
+  }
+
+  /**
+   * 把 sessionId 收敛成单个安全路径段：仅保留 [A-Za-z0-9._-]，其余替换为 `_`。
+   * `randomUUID()` 原样通过；空串或 `.`/`..` 一律拒绝，杜绝路径逃逸。
+   */
+  private sanitizeSessionId(sessionId: string): string {
+    const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, '_');
+    if (!safe || safe === '.' || safe === '..') {
+      throw new WorkspaceError('INVALID_PATH', `非法 sessionId：${sessionId}`);
+    }
+    return safe;
   }
 
   // =====================================================================
@@ -90,10 +147,10 @@ export class WorkspaceService {
       throw new WorkspaceError('INVALID_PATH', '路径包含非法 NUL 字节');
     }
 
-    // 允许 LLM 传入绝对路径 —— 但必须落在 root 内；相对路径以 root 为基。
+    // 允许 LLM 传入绝对路径 —— 但必须落在有效根内；相对路径以有效根为基。
     const abs = path.isAbsolute(userPath)
       ? path.resolve(userPath)
-      : path.resolve(this.config.root, userPath);
+      : path.resolve(this.root, userPath);
 
     if (!this.isInsideRoot(abs)) {
       throw new WorkspaceError(
@@ -142,9 +199,9 @@ export class WorkspaceService {
     }
   }
 
-  /** 供工具层展示：把绝对路径转成相对 workspace 根的展示路径 */
+  /** 供工具层展示：把绝对路径转成相对有效根的展示路径 */
   toRelative(abs: string): string {
-    const rel = path.relative(this.config.root, abs);
+    const rel = path.relative(this.root, abs);
     return rel === '' ? '.' : rel.split(path.sep).join('/');
   }
 
@@ -219,7 +276,7 @@ export class WorkspaceService {
     this.assertCommandAllowed(cmd);
     const cwd = cwdRel
       ? await this.resolve(cwdRel, { mustExist: true })
-      : this.config.root;
+      : this.root;
 
     return new Promise<CommandResult>((resolve, reject) => {
       const child = spawn(cmd, args, {
@@ -294,9 +351,9 @@ export class WorkspaceService {
   // 私有工具
   // =====================================================================
 
-  /** 判断 abs 是否位于 workspace 根内（含根本身） */
+  /** 判断 abs 是否位于有效根内（含根本身） */
   private isInsideRoot(abs: string): boolean {
-    const rel = path.relative(this.config.root, abs);
+    const rel = path.relative(this.root, abs);
     if (rel === '') return true;
     return !rel.startsWith('..') && !path.isAbsolute(rel);
   }

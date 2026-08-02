@@ -1,4 +1,5 @@
 import ChatView from '@/views/ChatView.vue'
+import KnowledgeView from '@/views/KnowledgeView.vue'
 import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
@@ -8,6 +9,11 @@ const router = createRouter({
       path: '/',
       name: 'chat',
       component: ChatView,
+    },
+    {
+      path: '/knowledge',
+      name: 'knowledge',
+      component: KnowledgeView,
     },
   ],
 })

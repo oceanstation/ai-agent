@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
+import { KnowledgeModule } from './knowledge/knowledge.module';
 import { LlmModule } from './llm/llm.module';
 import { MemoryModule } from './memory/memory.module';
 import { HistoryModule } from './history/history.module';
@@ -17,6 +18,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     SkillModule,
     WorkspaceModule,
     SddModule,
+    KnowledgeModule,
     BootstrapModule,
   ],
   controllers: [AgentController],

@@ -4,7 +4,9 @@
   "license": "MIT",
   "scripts": {
     "dev": "nx run-many -t serve -p @ai-agent/agent @ai-agent/ui",
+    "dev:all": "nx run-many -t serve -p @ai-agent/agent @ai-agent/ui @ai-agent/chroma",
     "agent:serve": "nx serve @ai-agent/agent",
+    "chroma:serve": "nx serve @ai-agent/chroma",
     "ui:dev": "nx dev @ai-agent/ui",
     "ui-astro:dev": "nx dev @ai-agent/ui-astro",
     "ui-astro:build": "nx build @ai-agent/ui-astro",

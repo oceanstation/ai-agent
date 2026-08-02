@@ -96,8 +96,15 @@ export class AgentService implements OnModuleInit {
     // MCP 工具列表
     let mcpTools: Awaited<ReturnType<MultiServerMCPClient['getTools']>> = [];
     if (this.mcpConfig.enabled) {
-      const client = new MultiServerMCPClient(this.mcpConfig.client);
-      mcpTools = await client.getTools();
+      try {
+        const client = new MultiServerMCPClient(this.mcpConfig.client);
+        mcpTools = await client.getTools();
+      } catch (err) {
+        this.logger.warn(
+          `MCP 工具加载失败，本轮降级为无 MCP 模式: ${(err as Error).message}`,
+        );
+        mcpTools = [];
+      }
     }
 
     return createAgent({

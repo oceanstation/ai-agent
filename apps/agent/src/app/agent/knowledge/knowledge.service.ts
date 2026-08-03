@@ -31,7 +31,7 @@ export interface QueryOptions {
  * 知识库查询服务
  *
  * - 惰性连接 Chroma：首次查询才建立连接与集合句柄，服务启动不受影响；
- * - 集合名与 apps/chroma/embedding.ts 保持一致（`cookbook`）；
+ * - 集合名与 apps/chroma/ingest.ts 保持一致（`cookbook`）；
  * - 依赖 Chroma 服务已经启动（`pnpm exec chroma run --path ./data`）。
  */
 @Injectable()

@@ -45,7 +45,7 @@ export class BgeEmbedder {
   constructor() {
     // 统一到仓库根 `.models/`，与 apps/chroma 共享同一份缓存
     env.cacheDir = resolveSharedCacheDir();
-    env.allowRemoteModels = true;
+    env.allowRemoteModels = false;
   }
 
   private async getExtractor(): Promise<FeatureExtractionPipeline> {
@@ -54,21 +54,20 @@ export class BgeEmbedder {
       this.logger.log(`Loading embedding model: ${this.modelId}`);
       this.loading = pipeline('feature-extraction', this.modelId, {
         device: 'cpu',
-      }) as Promise<FeatureExtractionPipeline>;
+      });
     }
     this.extractor = await this.loading;
     this.logger.log(`Embedding model ready: ${this.modelId}`);
     return this.extractor;
   }
 
-  /** chromadb `EmbeddingFunction.generate`：把一批文本编码成向量 */
   async generate(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    const model = await this.getExtractor();
-    const output = await model(texts, {
+    const extractor = await this.getExtractor();
+    const output = await extractor(texts, {
       pooling: 'mean',
       normalize: true,
     });
-    return output.tolist() as number[][];
+    return output.tolist();
   }
 }

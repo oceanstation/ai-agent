@@ -8,7 +8,7 @@ import { dirname, resolve } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 env.cacheDir = process.env.HF_CACHE_DIR ?? resolve(__dirname, "../../.models");
 // 禁用从 Hub 拉取"远程"标识等不必要的网络行为（模型已缓存后完全离线）
-env.allowRemoteModels = true;
+env.allowRemoteModels = false;
 
 // 中文 bge 模型（HuggingFace 上的 ONNX 版本，transformers.js 可直接加载）
 // - BAAI/bge-small-zh-v1.5 : 快、体积小（~130MB），中文效果已经很好
@@ -17,12 +17,11 @@ const MODEL_ID = 'Xenova/bge-base-zh-v1.5';
 
 let extractor: FeatureExtractionPipeline | null = null;
 
-async function getExtractor(): Promise<FeatureExtractionPipeline> {
+async function getExtractor() {
   if (!extractor) {
-    extractor = (await pipeline('feature-extraction', MODEL_ID, {
-      // 用本机 CPU 推理；如需 GPU 改成 { device: "webgpu" }（需支持的运行时）
-      device: 'webgpu',
-    })) as FeatureExtractionPipeline;
+    extractor = await pipeline('feature-extraction', MODEL_ID, {
+      device: 'cpu',
+    });
   }
   return extractor;
 }
@@ -30,17 +29,15 @@ async function getExtractor(): Promise<FeatureExtractionPipeline> {
 /**
  * 把一个句子/段落变成平均池化后的向量（bge 推荐用法）
  */
-async function embed(texts: string | string[]): Promise<number[][]> {
-  const model = await getExtractor();
+async function getEmbedding(texts: string | string[]): Promise<number[][]> {
+  const extractor = await getExtractor();
   const inputs = Array.isArray(texts) ? texts : [texts];
 
-  const output = await model(inputs, {
-    pooling: "mean",
+  const output = await extractor(inputs, {
+    pooling: 'mean',
     normalize: true, // bge 官方建议对向量做 L2 归一化
   });
-
-  // output.tolist() -> number[][]
-  return output.tolist() as number[][];
+  return output.tolist();
 }
 
 /**
@@ -51,6 +48,6 @@ async function embed(texts: string | string[]): Promise<number[][]> {
  */
 export class BgeZhEmbeddingFunction {
   async generate(texts: string[]): Promise<number[][]> {
-    return embed(texts);
+    return getEmbedding(texts);
   }
 }

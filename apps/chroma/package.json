@@ -6,7 +6,9 @@
   "nx": {
     "projectType": "application",
     "sourceRoot": "apps/chroma",
-    "tags": ["type:app"],
+    "tags": [
+      "type:app"
+    ],
     "targets": {
       "serve": {
         "continuous": true,
@@ -19,7 +21,7 @@
     }
   },
   "scripts": {
-    "embedding": "tsx embedding.ts"
+    "ingest": "tsx ingest.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

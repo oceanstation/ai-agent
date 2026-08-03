@@ -85,7 +85,7 @@ async function main(): Promise<void> {
     console.warn(`未在 ${DOCS_DIR} 找到任何 .md 文件`);
     return;
   }
-  console.log(`找到 ${files.length} 个 md 文件`);
+  console.log(`找到 ${files.length} 个 md 文件：`);
 
   const collection = await client.getOrCreateCollection({
     name: COLLECTION_NAME,
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
       metadatas: records.map((r) => r.metadata),
     });
     total += records.length;
-    console.log(`  ✓ ${file} -> ${records.length} 个 chunk`);
+    console.log(`✓ ${file} -> ${records.length} 个 chunk`);
   }
 
   const count = await collection.count();

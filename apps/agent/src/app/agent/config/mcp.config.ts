@@ -25,6 +25,12 @@ export function loadMcpConfig(configService: ConfigService): McpConfig {
     };
   }
 
+  mcpServers['chrome-devtools'] = {
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', 'chrome-devtools-mcp@latest'],
+  };
+
   return {
     enabled: Object.keys(mcpServers).length > 0,
     client: { mcpServers },

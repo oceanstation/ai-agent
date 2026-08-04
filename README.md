@@ -27,15 +27,15 @@ ai-agent/
 │   │       ├── sdd/           # 规约驱动开发（specify → plan → tasks → implement）
 │   │       ├── tools/         # LangChain 工具：file / memory / skill / sdd / search
 │   │       ├── bootstrap/     # 启动自检
-│   │       └── config/        # 系统提示词 + MCP 配置
+│   │   └── config/        # 系统提示词 + MCP 配置
+│   │   ├── .memory/       # 运行时长期记忆（MEMORY.md + 按日日志）
+│   │   ├── .skills/       # Skill 库（含 sdd-specify / sdd-plan / sdd-tasks / sdd-implement）
+│   │   └── .data/         # SQLite 历史库（history.db）
 │   ├── ui/                    # Vue 3 + Vite 主前端（ChatView / SessionPanel）
 │   └── ui-astro/              # Astro + Vue 岛屿架构的实验前端
 ├── packages/
 │   └── common/                # 前后端共享类型（ContentBlock 等）
-├── .memory/                   # 运行时长期记忆（MEMORY.md + 按日日志）
-├── .skills/                   # Skill 库（含 sdd-specify / sdd-plan / sdd-tasks / sdd-implement）
-├── .data/                     # SQLite 历史库（history.db）
-└── workspace/                 # Agent 可读写的用户项目根目录（含 .specify/ 规约产物）
+└── workspace/             # Agent 可读写的用户项目根目录（含 .specify/ 规约产物）
 ```
 
 技术栈：Nx 23 + pnpm workspace · NestJS 11 · LangChain 1.x（`createAgent`） · `@langchain/openai`（对接 DeepSeek 兼容端点） · `@langchain/mcp-adapters` · Node 内置 SQLite（`--experimental-sqlite`） · Vue 3.5 · Astro 5。
@@ -66,9 +66,9 @@ cp .env.example .env
 | LLM · pro | `LLM_PRO_API_KEY` / `LLM_PRO_API_URL` / `LLM_PRO_MODEL` | 深度推理档；缺失字段从 fast 逐项补齐 |
 | 搜索 | `TAVILY_API_KEY` | 联网搜索工具（可选） |
 | MCP | `AMAP_MCP_KEY` | 高德地图 MCP（可选） |
-| 历史 | `HISTORY_DB_PATH` | SQLite 路径，默认 `.data/history.db` |
-| 记忆 | `MEMORY_ROOT` / `MEMORY_RECENT_DAYS` / `MEMORY_FLUSH_*` | 长期记忆根目录、日志窗口、Flush 策略 |
-| 技能 | `SKILLS_ROOT` | Skill 根目录，默认 `skills` |
+| 历史 | `HISTORY_DB_PATH` | SQLite 路径，默认 `apps/agent/.data/history.db` |
+| 记忆 | `MEMORY_ROOT` / `MEMORY_RECENT_DAYS` / `MEMORY_FLUSH_*` | 长期记忆根目录（默认 `apps/agent/.memory`）、日志窗口、Flush 策略 |
+| 技能 | `SKILLS_ROOT` | Skill 根目录，默认 `apps/agent/.skills` |
 | SDD | `SDD_ROOT` | 规约产物目录，默认 `<WORKSPACE_ROOT>/.specify` |
 | 工作区 | `WORKSPACE_ROOT` / `WORKSPACE_WRITABLE` / `WORKSPACE_COMMAND_ENABLED` / `WORKSPACE_COMMAND_ALLOWLIST` | Agent 可访问的用户项目目录 & 权限 |
 
@@ -131,7 +131,7 @@ pnpm nx run @ai-agent/agent:prune  # 生成可独立部署的 dist（含 pnpm-lo
 ### 七大子系统
 
 - **LLM · 模型分层**（`app/agent/llm/`）：`LlmService` 按 tier 惰性构造 `ChatOpenAI` 并缓存。当前定义 `fast / pro` 两档；`pro` 缺字段时逐项从 `fast` 补齐，未配置的 tier 在 `get()` 时自动降级。`stream()` 里一行判断决定本轮 tier，前端 `UsageBlock` 会显示本轮实际使用的模型名。
-- **Memory**（`app/agent/memory/`）：`.memory/MEMORY.md` 常青记忆 + `.memory/memory/YYYY-MM-DD.md` 每日日志；每 N 轮自动 Flush（`MEMORY_FLUSH_*`），Flush 摘要模型固定走 `fast` 档；支持用户手写编辑无需重启即生效。
+- **Memory**（`app/agent/memory/`）：`apps/agent/.memory/MEMORY.md` 常青记忆 + `apps/agent/.memory/memory/YYYY-MM-DD.md` 每日日志；每 N 轮自动 Flush（`MEMORY_FLUSH_*`），Flush 摘要模型固定走 `fast` 档；支持用户手写编辑无需重启即生效。
 - **Skill**（`app/agent/skills/`）：**渐进式披露** —— `SKILL.md` 的 YAML frontmatter（name/description）先塞进 system prompt，Agent 需要时再通过 `read_skill` 工具懒加载正文；`read_skill` 属于内部工具，前端不展示。
 - **Workspace**（`app/agent/workspace/`）：给 `read_file / write_file / list_dir / run_command` 工具划定可读写沙箱，内置 `.git`、`node_modules`、`.env*`、`*.pem`、`*.key` 禁区，命令走白名单 + 超时 + 输出截断；`WorkspaceError` 用带 code 的类型化错误代替字符串魔法。
 - **History**（`app/agent/history/`）：Node 内置 SQLite + WAL；启用 **FTS5 虚表**做全文检索；每轮结束把 user / assistant / tool 消息落库，历史回放时只把 user/assistant 送回 LLM（按 token 预算滑动窗口裁剪）。

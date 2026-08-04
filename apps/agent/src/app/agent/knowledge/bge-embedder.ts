@@ -1,15 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { resolve } from 'node:path';
+import { ConfigService } from '@nestjs/config';
 import {
   pipeline,
   env,
   type FeatureExtractionPipeline,
 } from '@huggingface/transformers';
-
-function resolveSharedCacheDir(): string {
-  if (process.env.HF_CACHE_DIR) return process.env.HF_CACHE_DIR;
-  return resolve(process.cwd(), '.models');
-}
+import { loadKnowledgeConfig } from './knowledge.config';
 
 /**
  * 本地中文 bge 嵌入器（**仅查询用**）
@@ -36,15 +32,18 @@ export class BgeEmbedder {
    * 否则集合的向量维度会不匹配（bge-base=768，bge-small=512），
    * chroma 会以 "expecting embedding with dimension of X, got Y" 报错。
    */
-  private readonly modelId =
-    process.env.BGE_MODEL_ID ?? 'Xenova/bge-base-zh-v1.5';
+  private readonly modelId: string;
 
   private extractor: FeatureExtractionPipeline | null = null;
   private loading: Promise<FeatureExtractionPipeline> | null = null;
 
-  constructor() {
-    // 统一到仓库根 `.models/`，与 apps/chroma 共享同一份缓存
-    env.cacheDir = resolveSharedCacheDir();
+  constructor(configService: ConfigService) {
+    const cfg = loadKnowledgeConfig(configService);
+    this.modelId = cfg.bgeModelId;
+
+    // 统一到 KnowledgeConfig.hfCacheDir（默认仓库根 `.models/`），
+    // 与 apps/chroma 入库端共享同一份缓存。
+    env.cacheDir = cfg.hfCacheDir;
     env.allowRemoteModels = false;
   }
 

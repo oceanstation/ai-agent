@@ -1,5 +1,7 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { Logger } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
+import type { LlmService } from '../llm/llm.service';
 import type { MemoryService } from '../memory/memory.service';
 import type { SddService } from '../sdd/sdd.service';
 import type { SkillService } from '../skills/skill.service';
@@ -20,6 +22,8 @@ export interface BaseToolDeps {
   skillService: SkillService;
   workspaceService: WorkspaceService;
   sddService: SddService;
+  llmService: LlmService;
+  configService: ConfigService;
 }
 
 const logger = new Logger('BaseTools');
@@ -49,19 +53,26 @@ export function buildBaseTools(
   deps: BaseToolDeps,
   sessionId?: string,
 ): StructuredToolInterface[] {
-  const { memoryService, skillService, workspaceService, sddService } = deps;
+  const {
+    memoryService,
+    skillService,
+    workspaceService,
+    sddService,
+    llmService,
+    configService,
+  } = deps;
 
-  // 文件类工具绑定到“会话作用域”的 workspace 视图；其余工具与 session 无关。
+  // 文件类工具绑定到"会话作用域"的 workspace 视图；其余工具与 session 无关。
   const ws = workspaceService.forSession(sessionId);
 
   // specs 只描述"有哪些工具、什么条件下启用、怎么造"，不做任何真正的动作
   const specs: ToolSpec[] = [
     {
       name: 'search',
-      enabled: isSearchSubagentAvailable,
-      factory: () => createSearchSubagentTool(),
+      enabled: () => isSearchSubagentAvailable(configService, llmService),
+      factory: () => createSearchSubagentTool(configService, llmService),
       fallbackMessage:
-        '未检测到 TAVILY_API_KEY 或 LLM_FAST_API_KEY，search subagent 将不可用',
+        '未检测到 TAVILY_API_KEY 或 LLM fast 档不可用，search subagent 将不可用',
     },
     {
       name: 'read_memory',

@@ -5,7 +5,7 @@ import { parseIntSafe } from '../utils/config-parse';
 /**
  * Memory 子系统的运行时配置。
  *
- * 单用户本地部署：默认落地到 `./.memory/`（相对进程 cwd）。
+ * 单用户本地部署：默认落地到 `./apps/agent/.memory/`（相对仓库根 cwd）。
  * 所有配置项均可通过环境变量覆盖，未设置时使用默认值。
  */
 export interface MemoryConfig {
@@ -25,7 +25,7 @@ export interface MemoryConfig {
   flushMinMessages: number;
 }
 
-const DEFAULT_ROOT = '.memory';
+const DEFAULT_ROOT = 'apps/agent/.memory';
 const DEFAULT_RECENT_DAYS = 3;
 const DEFAULT_FLUSH_EVERY_TURNS = 1;
 const DEFAULT_FLUSH_MIN_MESSAGES = 2;

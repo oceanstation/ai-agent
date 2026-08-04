@@ -1,7 +1,8 @@
 import { tool } from '@langchain/core/tools';
-import { ChatOpenAI } from '@langchain/openai';
+import type { ConfigService } from '@nestjs/config';
 import { createAgent } from 'langchain';
 import { z } from 'zod';
+import type { LlmService } from '../../llm/llm.service';
 import { createSearchTool } from '../search.tool';
 
 /**
@@ -63,33 +64,34 @@ const SEARCH_SYSTEM_PROMPT = `你是一个专业的调研助手（Search Subagen
  *
  * 需同时具备：
  * - TAVILY_API_KEY：subagent 内部搜索工具的凭据
- * - LLM_FAST_API_KEY：subagent 自己的 LLM 凭据（不再从主 Agent 透传）
+ * - LlmService.get('fast') 可用：subagent 自己的 LLM（复用主进程 LLM 配置）
  *
  * 由 buildBaseTools 的 enabled 短路判断使用，避免装配时抛错。
  */
-export function isSearchSubagentAvailable(): boolean {
-  return !!process.env.TAVILY_API_KEY && !!process.env.LLM_FAST_API_KEY;
+export function isSearchSubagentAvailable(
+  configService: ConfigService,
+  llmService: LlmService,
+): boolean {
+  const tavilyKey = configService.get<string>('TAVILY_API_KEY');
+  return !!tavilyKey && !!llmService.get('fast');
 }
 
-function buildSubagentModel(): ChatOpenAI {
-  return new ChatOpenAI({
-    model: process.env.LLM_FAST_MODEL,
-    temperature: 0,
-    apiKey: process.env.LLM_FAST_API_KEY,
-    useResponsesApi: true,
-    configuration: { baseURL: process.env.LLM_FAST_API_URL },
-  });
-}
-
-export function createSearchSubagentTool() {
-  const tavilyApiKey = process.env.TAVILY_API_KEY;
+export function createSearchSubagentTool(
+  configService: ConfigService,
+  llmService: LlmService,
+) {
+  const tavilyApiKey = configService.get<string>('TAVILY_API_KEY');
   if (!tavilyApiKey) {
     throw new Error('TAVILY_API_KEY 未配置，无法创建 search subagent');
+  }
+  const model = llmService.get('fast');
+  if (!model) {
+    throw new Error('LLM fast 档不可用，无法创建 search subagent');
   }
 
   // 1) 构造 subagent —— 它只持有一个 internet_search 工具
   const subagent = createAgent({
-    model: buildSubagentModel(),
+    model,
     systemPrompt: SEARCH_SYSTEM_PROMPT,
     tools: [createSearchTool(tavilyApiKey)],
   });

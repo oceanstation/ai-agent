@@ -13,7 +13,7 @@ export interface SkillConfig {
   root: string;
 }
 
-const DEFAULT_ROOT = 'skills';
+const DEFAULT_ROOT = 'apps/agent/.skills';
 
 /**
  * 从 ConfigService 读取并归一化 Skill 配置。

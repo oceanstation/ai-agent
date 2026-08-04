@@ -62,8 +62,8 @@ test-output
 
 # 用户agent相关产物，避免隐私外泄
 /workspace
-.memory/
-.data/
+/apps/agent/.memory/
+/apps/agent/.data/
 
 # HuggingFace 模型缓存（agent + chroma 共享，首次运行自动下载 ~400MB）
 /.models

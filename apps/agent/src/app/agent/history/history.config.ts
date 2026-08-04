@@ -4,7 +4,7 @@ import * as path from 'node:path';
 /**
  * History 子系统的运行时配置。
  *
- * 单用户本地部署：默认落地到 `./.data/history.db`（相对进程 cwd）。
+ * 单用户本地部署：默认落地到 `./apps/agent/.data/history.db`（相对仓库根 cwd）。
  * 可通过环境变量 `HISTORY_DB_PATH` 覆盖数据库文件位置。
  */
 export interface HistoryConfig {
@@ -14,7 +14,7 @@ export interface HistoryConfig {
   titleMaxLength: number;
 }
 
-const DEFAULT_DB_PATH = '.data/history.db';
+const DEFAULT_DB_PATH = 'apps/agent/.data/history.db';
 const DEFAULT_TITLE_MAX_LENGTH = 40;
 
 /**

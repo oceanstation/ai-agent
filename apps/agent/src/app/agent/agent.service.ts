@@ -82,6 +82,8 @@ export class AgentService implements OnModuleInit {
         skillService: this.skillService,
         workspaceService: this.workspaceService,
         sddService: this.sddService,
+        llmService: this.llmService,
+        configService: this.configService,
       },
       sessionId,
     );

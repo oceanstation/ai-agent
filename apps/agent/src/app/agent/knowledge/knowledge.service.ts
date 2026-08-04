@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ChromaClient, type Collection, type Metadata } from 'chromadb';
 import { BgeEmbedder } from './bge-embedder';
+import { loadKnowledgeConfig, type KnowledgeConfig } from './knowledge.config';
 
 /** 入库阶段写入的元数据结构（在 chroma 官方 Metadata 基础上收敛常用字段） */
 export type HitMetadata = Metadata & {
@@ -37,13 +39,18 @@ export interface QueryOptions {
 @Injectable()
 export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
-  private readonly collectionName = process.env.CHROMA_COLLECTION ?? 'cookbook';
+  private readonly config: KnowledgeConfig;
 
   private client: ChromaClient | null = null;
   private collection: Collection | null = null;
   private connecting: Promise<Collection> | null = null;
 
-  constructor(private readonly embedder: BgeEmbedder) {}
+  constructor(
+    configService: ConfigService,
+    private readonly embedder: BgeEmbedder,
+  ) {
+    this.config = loadKnowledgeConfig(configService);
+  }
 
   /** 获取（或建立）到 chroma 集合的连接 */
   private async getCollection(): Promise<Collection> {
@@ -51,15 +58,15 @@ export class KnowledgeService {
     if (!this.connecting) {
       this.connecting = (async () => {
         this.client = new ChromaClient({
-          host: process.env.CHROMA_HOST ?? 'localhost',
-          port: Number(process.env.CHROMA_PORT ?? 8000),
+          host: this.config.chromaHost,
+          port: this.config.chromaPort,
         });
         const col = await this.client.getOrCreateCollection({
-          name: this.collectionName,
+          name: this.config.chromaCollection,
           embeddingFunction: this.embedder,
         });
         this.logger.log(
-          `Connected to Chroma collection: ${this.collectionName}`,
+          `Connected to Chroma collection: ${this.config.chromaCollection}`,
         );
         return col;
       })().catch((err) => {

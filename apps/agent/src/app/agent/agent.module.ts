@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
+import { AgentRunService } from './agent.run.service';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { LlmModule } from './llm/llm.module';
@@ -22,7 +23,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     BootstrapModule,
   ],
   controllers: [AgentController],
-  providers: [AgentService],
+  providers: [AgentService, AgentRunService],
   exports: [AgentService],
 })
 export class AgentModule {}

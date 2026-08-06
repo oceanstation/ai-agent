@@ -28,7 +28,9 @@
           >
             <summary class="tool-result__summary">
               <span class="tool-result__badge">工具返回</span>
-              <span class="tool-result__label">{{ toolResultLabel(message.block) }}</span>
+              <span class="tool-result__label">{{
+                toolResultLabel(message.block)
+              }}</span>
               <svg
                 class="tool-result__chevron"
                 viewBox="0 0 12 12"
@@ -159,7 +161,7 @@ import ToolBlock from '@/components/ToolBlock.vue';
 import UsageBlock from '@/components/UsageBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { computed, onMounted, ref, type Component } from 'vue';
-import { invokeAgent, searchSession, ApiError } from '@/api';
+import { invokeAgent, resumeAgent, searchSession, ApiError } from '@/api';
 import { formatSearchHits } from '@/utils/searchHighlight';
 import { useChatSession } from '@/composables/useChatSession';
 
@@ -173,6 +175,7 @@ const RENDERER_MAP: Record<ContentBlock['type'], Component | null> = {
   spec_gate: SpecGateBlock,
   done: null,
   session: null,
+  run: null,
 };
 
 // 将 block 归一化为对应渲染组件的 props
@@ -246,6 +249,8 @@ const {
   persistSessionId,
   appendUserMessage,
   appendAssistantBlock,
+  getActiveRun,
+  setActiveRun,
 } = useChatSession();
 
 const userInput = ref('');
@@ -299,6 +304,16 @@ onMounted(async () => {
   await restoreHistory();
   scrollToBottom();
   void fetchSessions();
+
+  /**
+   * 断线重连：
+   * 如果本地记录了未结束的 run，尝试续订，把刷新前遗漏的 blocks 追平并继续接收增量。
+   * 若 run 已过期（404），静默清空记录。
+   */
+  const active = getActiveRun();
+  if (active) {
+    void resumeActiveRun(active.runId, active.cursor);
+  }
 });
 
 /**
@@ -372,6 +387,32 @@ const sendMessage = async () => {
 };
 
 /**
+ * 处理单帧 SSE 数据：解析成 ContentBlock 并路由。
+ *
+ * 返回的第二个字段用于告知调用方"本帧是否属于计入 cursor 的内容块"：
+ * - session / run 是元帧，前端只用于持久化，不进入 blocks 序列；
+ * - done 是流终止标记，也不占用 cursor；
+ * - 其他类型（含 usage / text / tool_use / ...）计入 cursor。
+ */
+const parseSseFrame = (data: string): ContentBlock | null => {
+  let block: ContentBlock;
+  try {
+    block = JSON.parse(data) as ContentBlock;
+  } catch {
+    // 兜底：非 JSON 字符串按文本处理
+    block = { type: 'text', text: data };
+  }
+  // 兜底：老协议 { done: true } → 忽略
+  if ((block as any).done === true) return null;
+  if (!block.type || !(block.type in RENDERER_MAP)) return null;
+  return block;
+};
+
+/** 计入 cursor 的 block 类型判定：与后端 AgentRunService.blocks 的元素范围保持一致 */
+const isCursorTrackedBlock = (block: ContentBlock): boolean =>
+  block.type !== 'session' && block.type !== 'run' && block.type !== 'done';
+
+/**
  * 发起一次 /agent/invoke SSE 调用，逐帧消费并转发到消息流。
  * 用户输入与 SDD 阶段批准回调都会走这条通道。
  */
@@ -379,30 +420,40 @@ const runAgentTurn = async (message: string) => {
   try {
     isLoading.value = true;
 
+    // 本轮 cursor 从 0 开始；收到 run 元帧后与 runId 一起落盘，
+    // 之后每收到一条计入 cursor 的 block 就 +1 并同步 localStorage，
+    // 保证任意时刻刷新页面都能从最近位置续订。
+    let currentRunId: string | null = null;
+    let cursor = 0;
+
     await invokeAgent({
       message,
       sessionId: sessionId.value,
       onMessage(data) {
-        let block: ContentBlock;
-        try {
-          block = JSON.parse(data) as ContentBlock;
-        } catch {
-          // 兜底：非 JSON 字符串按文本处理
-          block = { type: 'text', text: data };
-        }
+        const block = parseSseFrame(data);
+        if (!block) return;
 
-        // 兜底：老协议 { done: true } → done block
-        if ((block as any).done === true) return;
-
-        if (!block.type || !(block.type in RENDERER_MAP)) return;
-
-        // 首帧 session：只存不渲染
         if (block.type === 'session') {
           persistSessionId(block.id);
           return;
         }
+        if (block.type === 'run') {
+          currentRunId = block.runId;
+          setActiveRun({ runId: block.runId, cursor });
+          return;
+        }
+        if (block.type === 'done') {
+          // 正常收尾：清除活跃 run，避免下一次刷新误触发 resume
+          setActiveRun(null);
+          return;
+        }
 
         pushAssistantBlock(block);
+
+        if (isCursorTrackedBlock(block)) {
+          cursor += 1;
+          if (currentRunId) setActiveRun({ runId: currentRunId, cursor });
+        }
       },
       onError(error) {
         console.error('Stream error:', error);
@@ -424,6 +475,66 @@ const runAgentTurn = async (message: string) => {
 };
 
 /**
+ * 页面刷新后的续订通道：把 (runId, cursor) 之后的 blocks 追平并订阅增量。
+ * - run 已过期（后端 404 / GC 清理）：静默清空本地记录；
+ * - 其他异常：交给全局错误日志，不影响用户后续操作。
+ */
+const resumeActiveRun = async (runId: string, startCursor: number) => {
+  try {
+    isLoading.value = true;
+    let cursor = startCursor;
+
+    await resumeAgent({
+      runId,
+      cursor: startCursor,
+      onMessage(data) {
+        const block = parseSseFrame(data);
+        if (!block) return;
+
+        // resume 场景下服务器仍会回带 session/run 元帧，用于确认上下文；无需再入消息流
+        if (block.type === 'session') {
+          persistSessionId(block.id);
+          return;
+        }
+        if (block.type === 'run') {
+          setActiveRun({ runId: block.runId, cursor });
+          return;
+        }
+        if (block.type === 'done') {
+          setActiveRun(null);
+          return;
+        }
+
+        pushAssistantBlock(block);
+        if (isCursorTrackedBlock(block)) {
+          cursor += 1;
+          setActiveRun({ runId, cursor });
+        }
+      },
+      onError(error) {
+        // 404：run 已过期；一次性清理即可
+        if (error instanceof ApiError && error.status === 404) {
+          setActiveRun(null);
+          return;
+        }
+        console.warn('Resume run failed:', error);
+      },
+    });
+
+    void fetchSessions();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      setActiveRun(null);
+    } else {
+      console.warn('Resume run failed:', error);
+    }
+  } finally {
+    isLoading.value = false;
+    scrollToBottom();
+  }
+};
+
+/**
  * SDD 阶段批准回调：用户点击"批准"后由 SpecGateBlock 组件触发。
  * 后端已把 approvedAt 落库，这里滞后 700ms 再发下一轮 agent 请求，
  * 让用户在时间线里先看到当前阶段变绿，再触发模型进入下一阶段。
@@ -432,11 +543,13 @@ const handleSpecGateApproved = (payload: {
   featureId: string;
   phase: string;
 }) => {
-  const nextPhase = ({
-    specify: 'plan',
-    plan: 'tasks',
-    tasks: 'implement',
-  } as Record<string, string>)[payload.phase];
+  const nextPhase = (
+    {
+      specify: 'plan',
+      plan: 'tasks',
+      tasks: 'implement',
+    } as Record<string, string>
+  )[payload.phase];
   if (!nextPhase) return;
   const prompt =
     `我已批准 feature \`${payload.featureId}\` 的 ${payload.phase} 阶段。` +
@@ -471,7 +584,9 @@ const handleSpecGateApproved = (payload: {
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 /* 隐藏浏览器默认的三角标记，用自定义 chevron */
@@ -595,7 +710,11 @@ const handleSpecGateApproved = (payload: {
 }
 
 .message.user .message-content {
-  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--brand-500) 0%,
+    var(--brand-700) 100%
+  );
   color: #fff;
   border-radius: 14px 14px 4px 14px; /* 右下小尖角，指向用户侧 */
 }

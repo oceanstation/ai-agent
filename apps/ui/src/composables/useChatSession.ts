@@ -15,6 +15,14 @@ export interface ChatMessage {
 }
 
 const SESSION_STORAGE_KEY = 'ai-agent:sessionId';
+const ACTIVE_RUN_STORAGE_PREFIX = 'ai-agent:activeRun:';
+
+/** 活跃 run 的本地记录：sessionId 下最近一次未完成的 agent 执行 */
+export interface ActiveRun {
+  runId: string;
+  /** 已消费到的 block 序号（不含 session/run 元帧） */
+  cursor: number;
+}
 
 /** 判定「普通对象」——排除 null 与数组，避免 `typeof === 'object'` 的经典陷阱 */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -34,6 +42,36 @@ function safeSetSessionId(id: string | null) {
     else localStorage.setItem(SESSION_STORAGE_KEY, id);
   } catch {
     // 隐私模式下 localStorage 可能不可用，忽略即可
+  }
+}
+
+/** 读取指定 sessionId 下的活跃 run 记录；无 / 解析失败均返回 null */
+function loadActiveRun(sessionId: string): ActiveRun | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_RUN_STORAGE_PREFIX + sessionId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      isRecord(parsed) &&
+      typeof parsed.runId === 'string' &&
+      typeof parsed.cursor === 'number'
+    ) {
+      return { runId: parsed.runId, cursor: parsed.cursor };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 覆写 / 清除某个 session 的活跃 run 记录 */
+function saveActiveRun(sessionId: string, run: ActiveRun | null) {
+  try {
+    const key = ACTIVE_RUN_STORAGE_PREFIX + sessionId;
+    if (run === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(run));
+  } catch {
+    // 忽略
   }
 }
 
@@ -135,8 +173,21 @@ export function useChatSession() {
 
   /** 清空 sessionId（本地存储 + 内存），供"删除当前会话"等场景使用 */
   const clearSessionId = () => {
+    if (sessionId.value) saveActiveRun(sessionId.value, null);
     sessionId.value = null;
     safeSetSessionId(null);
+  };
+
+  /** 读取当前会话的活跃 run；无 sessionId / 无记录时返回 null */
+  const getActiveRun = (): ActiveRun | null => {
+    if (!sessionId.value) return null;
+    return loadActiveRun(sessionId.value);
+  };
+
+  /** 更新（或清空）当前会话的活跃 run */
+  const setActiveRun = (run: ActiveRun | null) => {
+    if (!sessionId.value) return;
+    saveActiveRun(sessionId.value, run);
   };
 
   /**
@@ -255,5 +306,8 @@ export function useChatSession() {
     persistSessionId,
     appendUserMessage,
     appendAssistantBlock,
+    // 断线重连：活跃 run 状态
+    getActiveRun,
+    setActiveRun,
   };
 }

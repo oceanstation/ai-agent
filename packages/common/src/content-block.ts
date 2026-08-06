@@ -84,6 +84,18 @@ export interface SessionBlock {
   id: string;
 }
 
+/**
+ * 运行标识（SSE 首帧下发，紧随 session 之后）。
+ *
+ * 后端把每次 `/agent/invoke` 落成一个后台 run：即使 HTTP 连接断开，
+ * 服务端仍会持续跑完；前端拿到 `runId` 后配合已消费的 `blockIndex`，
+ * 页面刷新后可通过 `/agent/runs/:runId/stream?cursor=n` 无缝续传。
+ */
+export interface RunBlock {
+  type: 'run';
+  runId: string;
+}
+
 /** SDD 阶段枚举，与后端 SddPhase 保持一致 */
 export type SpecGatePhase = 'specify' | 'plan' | 'tasks' | 'implement';
 
@@ -119,5 +131,6 @@ export type ContentBlock =
   | ToolUseBlock
   | DoneBlock
   | SessionBlock
+  | RunBlock
   | UsageBlock
   | SpecGateBlock;

@@ -12,9 +12,8 @@ import {
 } from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { AgentService } from './agent.service';
-import type { AgentInvokeResult } from './agent.types';
-import { messagesToBlocks, type ContentBlock } from './agent.blocks';
+import { AgentRunService } from './agent.run.service';
+import type { ContentBlock } from './agent.blocks';
 import { HistoryService } from './history/history.service';
 import type {
   HistoryMessage,
@@ -27,18 +26,23 @@ import type { SddPhase, SddState } from './sdd/sdd.types';
 @Controller('agent')
 export class AgentController {
   constructor(
-    private readonly agentService: AgentService,
+    private readonly agentRunService: AgentRunService,
     private readonly historyService: HistoryService,
     private readonly sddService: SddService,
   ) {}
 
   /**
- * 流式调用 Agent（SSE）—— Content Block 协议
+   * 流式调用 Agent（SSE）—— Content Block 协议
    * GET /agent/invoke?message=...&sessionId=...
    *
    * - `sessionId` 可选：前端负责维护；未传时会自动新建一个 session，
    *   sessionId 通过首帧 `{ type: 'session', id }` 下发给前端持久化。
    * - 每条 SSE data 都是一个 ContentBlock，对齐 OpenAI / Anthropic Messages API 风格。
+   *
+   * 断线重连：本端点内部会启动一个后台 Run，agent 执行**不依赖 HTTP 连接**；
+   * 首帧 `session` 之后紧跟一帧 `{ type: 'run', runId }`，前端应把 runId 与
+   * 当前已消费的 block 序号（从 0 起，session/run 元帧不计入）持久化到 localStorage；
+   * 页面刷新后调用 `/agent/runs/:runId/stream?cursor=N` 即可无缝续传。
    */
   @Sse('invoke')
   stream(
@@ -51,65 +55,76 @@ export class AgentController {
         ? sessionIdInput
         : this.historyService.createSession().id;
 
+    const run = this.agentRunService.start({ message, sessionId });
+
     return new Observable<MessageEvent>((subscriber) => {
       let cancelled = false;
 
-      // 首帧下发 session 元信息，前端据此持久化（例如写入 localStorage）
-      subscriber.next({
-        data: { type: 'session', id: sessionId } satisfies ContentBlock,
-      });
+      // 首帧下发 session / run 元信息，前端据此持久化 (localStorage)。
+      // 这两个"元帧"不计入 blocks 序列，重连时前端从 cursor=0 开始订阅内容。
+      subscriber.next({ data: { type: 'session', id: sessionId } satisfies ContentBlock });
+      subscriber.next({ data: { type: 'run', runId: run.runId } satisfies ContentBlock });
 
       void (async () => {
         try {
-          // 增量策略：memory 相关 tool_use 与 tool 结果需要跨消息才能识别归属，
-          // 因此每个 chunk 到达时，先对**全量** messages 做过滤转换，得到当前
-          // 应展示的 blocks 序列，再与已推数量 diff，只把新增部分推给前端。
-          let emittedBlockCount = 0;
-          // 记录最后一个 chunk 的 usage —— agent.service 会在收尾时把
-          // 本轮 token 累计挂到最后一份快照上，供 SSE 结束前下发给前端展示。
-          let lastUsage: AgentInvokeResult['usage'] | undefined;
-
-          const iterator: AsyncIterable<AgentInvokeResult> =
-            this.agentService.stream({ message, sessionId });
-
-          for await (const chunk of iterator) {
+          for await (const block of this.agentRunService.subscribe(run.runId, 0)) {
             if (cancelled) break;
-
-            const allBlocks: ContentBlock[] = messagesToBlocks(chunk.messages);
-            const newBlocks = allBlocks.slice(emittedBlockCount);
-            emittedBlockCount = allBlocks.length;
-
-            for (const block of newBlocks) {
-              if (cancelled) break;
-              subscriber.next({ data: block });
-            }
-
-            if (chunk.usage) lastUsage = chunk.usage;
+            subscriber.next({ data: block });
           }
-
-          if (!cancelled) {
-            // 先下发 usage 帧（若有），再下发 done 结束帧
-            if (lastUsage) {
-              subscriber.next({
-                data: {
-                  type: 'usage',
-                  inputTokens: lastUsage.inputTokens,
-                  outputTokens: lastUsage.outputTokens,
-                  totalTokens: lastUsage.totalTokens,
-                  llmCalls: lastUsage.llmCalls,
-                  model: lastUsage.model,
-                } satisfies ContentBlock,
-              });
-            }
-            subscriber.next({ data: { type: 'done' } satisfies ContentBlock });
-            subscriber.complete();
-          }
+          if (!cancelled) subscriber.complete();
         } catch (err) {
-          subscriber.error(err);
+          if (!cancelled) subscriber.error(err);
         }
       })();
 
-      // teardown：客户端断开时置位，让 for-await 提前退出
+      // teardown：客户端断开只解除本次订阅，Run 仍在后台继续执行，
+      // 前端刷新后可通过 /agent/runs/:runId/stream 续订。
+      return () => {
+        cancelled = true;
+      };
+    });
+  }
+
+  /**
+   * 断线重连专用 SSE 端点。
+   * GET /agent/runs/:runId/stream?cursor=N
+   *
+   * - `cursor`：前端已消费到的 block 序号（不含 session/run 元帧）；从此位置开始回放并继续订阅。
+   * - 若 run 已结束且 cursor 已追上，则立即完成，不会挂起。
+   * - 若 runId 不存在（超过保留窗口被 GC / 服务重启），返回 404，前端应回退到读取会话历史。
+   */
+  @Sse('runs/:runId/stream')
+  resumeRun(
+    @Param('runId') runId: string,
+    @Query('cursor') cursorRaw?: string,
+  ): Observable<MessageEvent> {
+    const run = this.agentRunService.get(runId);
+    if (!run) {
+      // Nest 的 Observable-based SSE 中抛出会转成 500；这里直接抛 HttpException 让上层返回 404
+      throw new HttpException('run not found or expired', HttpStatus.NOT_FOUND);
+    }
+    const cursor = cursorRaw ? Number.parseInt(cursorRaw, 10) : 0;
+    const start = Number.isFinite(cursor) && cursor > 0 ? cursor : 0;
+
+    return new Observable<MessageEvent>((subscriber) => {
+      let cancelled = false;
+
+      // 重连场景仍下发 session/run 元帧，方便前端在任何入口都能"一次拿齐"上下文
+      subscriber.next({ data: { type: 'session', id: run.sessionId } satisfies ContentBlock });
+      subscriber.next({ data: { type: 'run', runId: run.runId } satisfies ContentBlock });
+
+      void (async () => {
+        try {
+          for await (const block of this.agentRunService.subscribe(runId, start)) {
+            if (cancelled) break;
+            subscriber.next({ data: block });
+          }
+          if (!cancelled) subscriber.complete();
+        } catch (err) {
+          if (!cancelled) subscriber.error(err);
+        }
+      })();
+
       return () => {
         cancelled = true;
       };

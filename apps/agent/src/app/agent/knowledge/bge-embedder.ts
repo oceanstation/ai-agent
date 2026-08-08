@@ -10,10 +10,10 @@ import { loadKnowledgeConfig } from './knowledge.config';
 /**
  * 本地中文 bge 嵌入器（**仅查询用**）
  *
- * - agent 侧只负责把用户 query 编码成向量，交给 chromadb 做检索；
- *   入库由独立的 `@ai-agent/chroma` 应用负责，两侧共用同一份
- *   `.models/` 缓存目录，确保维度一致（bge-base=768）；
- * - 首次调用会下载 ONNX 模型到 `env.cacheDir`（默认仓库根 `.models/`），
+ * - agent 侧只负责把用户 query 编码成向量，交给 Chroma Cloud 做检索；
+ *   入库在仓库外通过独立脚本完成，agent 与入库端须使用同一模型 ID，
+ *   保证维度一致（bge-base=768）；
+ * - 首次调用会下载 ONNX 模型到 `env.cacheDir`（由 KnowledgeConfig.hfCacheDir 决定），
  *   之后完全离线；
  * - 通过 lazy pipeline 保证服务启动不因大模型加载而阻塞；
  * - 输出经 mean pooling + L2 归一化，符合 bge 官方推荐用法。
@@ -28,7 +28,7 @@ export class BgeEmbedder {
   /**
    * 中文 bge 模型（HuggingFace ONNX，transformers.js 可直接加载）
    *
-   * **必须与 apps/chroma/bge-embedder.ts 的入库端保持一致**，
+   * **必须与入库端使用的模型保持一致**（可通过环境变量 `BGE_MODEL_ID` 覆盖），
    * 否则集合的向量维度会不匹配（bge-base=768，bge-small=512），
    * chroma 会以 "expecting embedding with dimension of X, got Y" 报错。
    */
@@ -41,10 +41,14 @@ export class BgeEmbedder {
     const cfg = loadKnowledgeConfig(configService);
     this.modelId = cfg.bgeModelId;
 
-    // 统一到 KnowledgeConfig.hfCacheDir（默认仓库根 `.models/`），
-    // 与 apps/chroma 入库端共享同一份缓存。
+    // 统一到 KnowledgeConfig.hfCacheDir（可由 AGENT_DATA_DIR / HF_CACHE_DIR 决定），
+    // 与入库端共享同一份模型缓存以避免重复下载。
     env.cacheDir = cfg.hfCacheDir;
-    env.allowRemoteModels = false;
+    // 允许自动下载（cacheDir 里缺文件时从 HuggingFace 拉）。
+    // 桌面打包首启动时 userData/.models 是空的，靠这里自动下载 ~400MB BGE 模型；
+    // 完全离线场景可设 `ALLOW_REMOTE_MODELS=false` 强制只用本地。
+    env.allowRemoteModels =
+      configService.get<string>('ALLOW_REMOTE_MODELS') !== 'false';
   }
 
   private async getExtractor(): Promise<FeatureExtractionPipeline> {

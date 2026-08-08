@@ -2,6 +2,8 @@
 dist
 tmp
 out-tsc
+# electron-builder 输出（apps/desktop/release）
+release
 # TypeScript 增量编译缓存（composite/incremental 开启时由 tsc 自动生成，纯本地缓存）
 *.tsbuildinfo
 
@@ -62,6 +64,7 @@ test-output
 
 # 用户agent相关产物，避免隐私外泄
 /workspace
+/.workspace
 /apps/agent/.memory/
 /apps/agent/.data/
 

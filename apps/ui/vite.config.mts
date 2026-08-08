@@ -5,6 +5,9 @@ import vue from '@vitejs/plugin-vue';
 
 export default defineConfig(() => ({
   root: import.meta.dirname,
+  // 打包后 Electron 通过 `file://` / `app://` 加载 index.html，
+  // 资源引用必须是相对路径，否则 `/assets/...` 会被解析到文件系统根。
+  base: './',
   cacheDir: '../../node_modules/.vite/apps/ui',
   resolve: {
     alias: {

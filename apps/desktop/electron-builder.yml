@@ -1,0 +1,103 @@
+# electron-builder 配置（Phase 3a：自用 MVP，不签名、不分发）
+#
+# 打包布局：
+#   AI Agent.app/Contents/
+#     ├── MacOS/AI Agent                            <- Electron 二进制
+#     └── Resources/
+#         ├── app.asar                              <- desktop main.js + preload.js（本 apps/desktop/dist）
+#         ├── agent/                                <- extraResources: apps/agent/dist/*
+#         │   ├── main.js                           <- utilityProcess.fork 目标
+#         │   ├── package.json / pnpm-lock.yaml
+#         │   ├── node_modules/                     <- 由 prepare-package.mjs 装
+#         │   │   ├── onnxruntime-node/**/*.node   <- native 模块，asar 外可 dlopen
+#         │   │   ├── @img/sharp-*/*.node
+#         │   │   └── ...
+#         │   └── workspace_modules/@ai-agent/common
+#         └── ui/                                    <- extraResources: apps/ui/dist/*
+#             ├── index.html
+#             └── assets/
+#
+# main.ts 里 prod 分支已按 `process.resourcesPath/{agent,ui}` 定位，二者匹配。
+
+appId: com.oceanhe.ai-agent
+productName: AI Agent
+copyright: Copyright © 2026
+
+# 打包输出目录（相对 apps/desktop）
+directories:
+  output: release
+  buildResources: build
+
+# 进 app.asar 的东西：只装 desktop 自己（main.js + preload.js + 本 package.json）
+files:
+  - dist/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/*.d.ts'
+
+# 出到 Contents/Resources/ 下（app.asar 外，可 dlopen native / 相对 process.resourcesPath 定位）
+# electron-builder 有内建 node_modules 过滤策略，即使 filter 写 `**/*` 也可能被剔。
+# 因此把 agent 顶层文件 和 agent/node_modules 显式拆两条 extraResources，各自明确 include。
+extraResources:
+  - from: ../agent/dist
+    to: agent
+    filter:
+      - '*'
+      - '!*.map'
+      - '!tsconfig*.json'
+      - '!tsconfig*.tsbuildinfo'
+      - '!pnpm-workspace.yaml'
+  - from: ../agent/dist/node_modules
+    to: agent/node_modules
+    filter:
+      - '**/*'
+      - '!**/*.map'
+      - '!**/*.d.ts'
+      - '!**/*.md'
+      - '!**/README*'
+      - '!**/LICENSE*'
+      - '!**/CHANGELOG*'
+      - '!**/test/**'
+      - '!**/tests/**'
+      - '!**/__tests__/**'
+  - from: ../agent/dist/workspace_modules
+    to: agent/workspace_modules
+    filter:
+      - '**/*'
+      - '!**/*.map'
+      - '!**/tsconfig*.json'
+  - from: ../ui/dist
+    to: ui
+    filter:
+      - '**/*'
+      - '!*.map'
+  # .env 模板：main.ts 首启动检测到 userData 内没有 .env 时，会从这里拷贝一份
+  # 作为用户可编辑的初始配置（引导 UI 会弹提示让用户去补 LLM_FAST_API_KEY 等）。
+  - from: ../../.env.example
+    to: .env.example
+
+# ⚠️ 目前 agent 及其 node_modules 走 extraResources（不在 asar 里），
+# 因此不需要 asarUnpack。若未来把 agent 也塞进 asar，务必 unpack 下面这些：
+#   - '**/onnxruntime-node/**'
+#   - '**/@img/sharp-*/**'
+#   - '**/chromadb-js-bindings-*/**'
+#   - '**/*.node'
+asarUnpack: []
+
+# macOS 打包目标：只出 dir（.app 文件夹），不出 dmg（Phase 3d 才做）
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dir
+      arch:
+        - arm64
+  # 自用 MVP：无签名
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+
+# 加速 & 兼容
+compression: normal       # 'store' 更快但体积大；normal 平衡
+npmRebuild: false          # apps/desktop 本身无 native 依赖；agent 侧的 .node 是 NAPI stable，Node 22/24 通用，无需 rebuild
+electronCompile: false     # 不预编译，减少差异
+buildDependenciesFromSource: false

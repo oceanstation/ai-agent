@@ -1,6 +1,23 @@
-/** Agent 调用：/agent/invoke 的 SSE 流式通道。 */
+/** Agent 调用：/agent/invoke 的 SSE 流式通道 + /agent/health 状态探测。 */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { AGENT_BASE } from './http';
+import { get } from './http';
+
+/** GET /agent/health 返回结构 */
+export interface AgentHealth {
+  /** LLM_FAST_API_KEY 已配置，AgentService 可对话 */
+  llmReady: boolean;
+  /** CHROMA_API_KEY 已配置，知识库检索可用 */
+  knowledgeReady: boolean;
+}
+
+/**
+ * 探测 agent 配置就绪状态。挂载时调一次；桌面模式下若 `llmReady=false`
+ * 就展示"编辑 .env"引导，而不是等用户发第一条消息后再抛错。
+ */
+export function fetchAgentHealth(): Promise<AgentHealth> {
+  return get<AgentHealth>('/health');
+}
 
 export interface InvokeAgentParams {
   /** 用户输入 / 系统触发的提示词 */

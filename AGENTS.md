@@ -23,7 +23,7 @@
 
 - 类型：**Nx 23 + pnpm 9.15 monorepo**
 - **自研 Agent 服务** `apps/agent` — NestJS 11 + LangChain 1.x（`createAgent`），对接 DeepSeek 兼容端点，通过 SSE 以 **ContentBlock** 协议向前端推送
-- 前端：`apps/ui`（Vue 3.5 + Vite）、`apps/ui-astro`（Astro 5 岛屿，实验）
+- 前端：`apps/ui`（Vue 3.5 + Vite）
 - 共享：`packages/common` — 前后端唯一契约层（`ContentBlock` 等类型）
 - 运行时依赖：Node ≥ 22.5，使用 `--experimental-sqlite` 内置 SQLite
 - 自研 Agent 的七大子系统：`llm / memory / skills / workspace / history / sdd / tools`；详见 `README.md`
@@ -72,7 +72,7 @@ apps/agent/src/app/agent/
 
 ### 2.1 模块间通信规则
 
-- **`apps/agent` 与 `apps/ui` / `apps/ui-astro` 只能通过 `packages/common` 通信**；任何一方直接 `import` 对方源码 → **拒绝合入**
+- **`apps/agent` 与 `apps/ui` 只能通过 `packages/common` 通信**；任何一方直接 `import` 对方源码 → **拒绝合入**
 - **自研 Agent 的子系统之间通过各自 Service 显式依赖**，不得跨越模块直接读文件系统 / SQLite / 环境变量
 - **`tools/*` 只允许调用同项目 Service**，不得反向被 Service 依赖（工具是"末端"）
 - 新增子系统 → 建独立目录 + `xxx.module.ts` + `xxx.service.ts` + `xxx.types.ts`（+ 可选 `xxx.config.ts`）
@@ -127,7 +127,6 @@ apps/agent/src/app/agent/
 | `apps/agent/src/main.ts` | `PORT` | Nest 启动脚手架，`app.listen()` 之前 ConfigService 生命周期尚未介入 |
 | `apps/agent/src/app/agent/workspace/workspace.service.ts` `spawn env` | `PATH` / `HOME` / `LANG` | 白名单式**主进程 shell 环境**直传给子进程，属于运行时环境而非"配置项" |
 | `apps/agent/webpack.config.js` | `NODE_ENV` | 构建脚本，非运行时业务代码 |
-| `apps/chroma/**` | 全部 | 独立 CLI 应用，无 Nest 容器上下文 |
 
 ### 4.3 文件系统访问
 
@@ -159,7 +158,7 @@ apps/agent/src/app/agent/
 
 ---
 
-## 5. 前端强制约定（`apps/ui` / `apps/ui-astro`）
+## 5. 前端强制约定（`apps/ui`）
 
 - Vue 3.5 **组合式 API + `<script setup lang="ts">`**；不写 Options API
 - **SSE 消费只有一份实现**（`ChatView.vue` 中）；新增视图请复用同一份流控逻辑，不要各写一遍

@@ -1,0 +1,60 @@
+{
+  "name": "@ai-agent/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/main.js",
+  "productName": "AI Agent",
+  "nx": {
+    "projectType": "application",
+    "tags": ["type:app"],
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "inputs": ["default", "^default"],
+        "outputs": ["{projectRoot}/dist"],
+        "options": {
+          "command": "tsc -p tsconfig.app.json",
+          "cwd": "apps/desktop"
+        }
+      },
+      "serve": {
+        "executor": "nx:run-commands",
+        "continuous": true,
+        "dependsOn": ["build", "@ai-agent/agent:build"],
+        "options": {
+          "command": "electron .",
+          "cwd": "apps/desktop"
+        }
+      },
+      "clean": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "rm -rf dist release tsconfig.build.tsbuildinfo",
+          "cwd": "apps/desktop"
+        }
+      },
+      "package": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "@ai-agent/agent:prune",
+          "@ai-agent/ui:build"
+        ],
+        "outputs": ["{projectRoot}/release"],
+        "options": {
+          "commands": [
+            "node scripts/prepare-package.mjs",
+            "electron-builder --dir --config electron-builder.yml"
+          ],
+          "cwd": "apps/desktop",
+          "parallel": false
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}

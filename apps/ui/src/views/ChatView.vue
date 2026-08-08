@@ -12,6 +12,8 @@
     />
 
     <div class="chat-container">
+      <SetupBanner :visible="showSetupBanner" />
+
       <div
         ref="messageContainer"
         class="chat-messages"
@@ -156,12 +158,13 @@ import ListBlock from '@/components/ListBlock.vue';
 import LoadingDots from '@/components/LoadingDots.vue';
 import MarkdownBlock from '@/components/MarkdownBlock.vue';
 import SessionPanel from '@/components/SessionPanel.vue';
+import SetupBanner from '@/components/SetupBanner.vue';
 import SpecGateBlock from '@/components/SpecGateBlock.vue';
 import ToolBlock from '@/components/ToolBlock.vue';
 import UsageBlock from '@/components/UsageBlock.vue';
 import type { ContentBlock } from '@ai-agent/common';
 import { computed, onMounted, ref, type Component } from 'vue';
-import { invokeAgent, resumeAgent, searchSession, ApiError } from '@/api';
+import { fetchAgentHealth, invokeAgent, resumeAgent, searchSession, ApiError } from '@/api';
 import { formatSearchHits } from '@/utils/searchHighlight';
 import { useChatSession } from '@/composables/useChatSession';
 
@@ -300,10 +303,29 @@ const handleSelectSession = async (id: string) => {
 const handleCreateSession = () => createSession();
 const handleDeleteSession = (id: string) => deleteSession(id);
 
+/**
+ * 桌面模式下的设置引导：
+ * - 挂载时探测 /agent/health，如果 llmReady=false 就显示 SetupBanner；
+ * - 仅在 window.__IS_DESKTOP__ 为 true 时启用（web 部署由反向代理承担配置）；
+ * - 探测失败静默：不 block 主流程，只是不显示引导。
+ */
+const showSetupBanner = ref(false);
+
+async function probeAgentHealth() {
+  if (!window.__IS_DESKTOP__) return;
+  try {
+    const health = await fetchAgentHealth();
+    showSetupBanner.value = !health.llmReady;
+  } catch {
+    // agent 未就绪时探测会失败 —— 不打扰用户，静默
+  }
+}
+
 onMounted(async () => {
   await restoreHistory();
   scrollToBottom();
   void fetchSessions();
+  void probeAgentHealth();
 
   /**
    * 断线重连：

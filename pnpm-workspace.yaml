@@ -1,3 +1,13 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# pnpm 9+ 出于安全默认拦截未列入白名单的 postinstall 脚本。
+# Electron 依赖 postinstall 下载平台二进制（Electron.app），必须显式放行。
+# 其他项：sharp / onnxruntime-node 依赖 postinstall 拉平台预编译 .node。
+onlyBuiltDependencies:
+  - electron
+  - electron-builder
+  - esbuild
+  - onnxruntime-node
+  - sharp

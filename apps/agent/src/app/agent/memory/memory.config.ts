@@ -1,6 +1,7 @@
 import type { ConfigService } from '@nestjs/config';
 import * as path from 'node:path';
 import { parseIntSafe } from '../utils/config-parse';
+import { resolveAgentPath } from '../../paths';
 
 /**
  * Memory 子系统的运行时配置。
@@ -25,7 +26,6 @@ export interface MemoryConfig {
   flushMinMessages: number;
 }
 
-const DEFAULT_ROOT = 'apps/agent/.memory';
 const DEFAULT_RECENT_DAYS = 3;
 const DEFAULT_FLUSH_EVERY_TURNS = 1;
 const DEFAULT_FLUSH_MIN_MESSAGES = 2;
@@ -34,12 +34,18 @@ const DEFAULT_FLUSH_MIN_MESSAGES = 2;
  * 从 ConfigService 读取并归一化 Memory 相关配置。
  *
  * 之所以做成独立函数：便于在测试中直接构造 config，无需启动 Nest 容器。
+ *
+ * 路径解析优先级（见 apps/agent/src/app/paths.ts）：
+ *   1. 显式 `MEMORY_ROOT`；
+ *   2. `AGENT_DATA_DIR/.memory`；
+ *   3. 兼容旧默认：`apps/agent/.memory`。
  */
 export function loadMemoryConfig(configService: ConfigService): MemoryConfig {
-  const rawRoot = configService.get<string>('MEMORY_ROOT') ?? DEFAULT_ROOT;
-  const root = path.isAbsolute(rawRoot)
-    ? rawRoot
-    : path.resolve(process.cwd(), rawRoot);
+  const root = resolveAgentPath(
+    configService.get<string>('MEMORY_ROOT'),
+    '.memory',
+    'apps/agent/.memory',
+  );
 
   return {
     root,

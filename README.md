@@ -31,14 +31,13 @@ ai-agent/
 │   │   ├── .memory/       # 运行时长期记忆（MEMORY.md + 按日日志）
 │   │   ├── .skills/       # Skill 库（含 sdd-specify / sdd-plan / sdd-tasks / sdd-implement）
 │   │   └── .data/         # SQLite 历史库（history.db）
-│   ├── ui/                    # Vue 3 + Vite 主前端（ChatView / SessionPanel）
-│   └── ui-astro/              # Astro + Vue 岛屿架构的实验前端
+│   └── ui/                    # Vue 3 + Vite 主前端（ChatView / SessionPanel）
 ├── packages/
 │   └── common/                # 前后端共享类型（ContentBlock 等）
 └── workspace/             # Agent 可读写的用户项目根目录（含 .specify/ 规约产物）
 ```
 
-技术栈：Nx 23 + pnpm workspace · NestJS 11 · LangChain 1.x（`createAgent`） · `@langchain/openai`（对接 DeepSeek 兼容端点） · `@langchain/mcp-adapters` · Node 内置 SQLite（`--experimental-sqlite`） · Vue 3.5 · Astro 5。
+技术栈：Nx 23 + pnpm workspace · NestJS 11 · LangChain 1.x（`createAgent`） · `@langchain/openai`（对接 DeepSeek 兼容端点） · `@langchain/mcp-adapters` · Node 内置 SQLite（`--experimental-sqlite`） · Vue 3.5。
 
 ## 快速开始
 
@@ -85,7 +84,6 @@ pnpm dev            # 并行拉起 agent + ui
 ```sh
 pnpm agent:serve    # 仅后端（http://localhost:3000）
 pnpm ui:dev         # 仅 Vue 前端（http://localhost:4200）
-pnpm ui-astro:dev   # 实验性 Astro 前端
 ```
 
 > ⚠️ 后端 `serve` 通过 `runtimeArgs: ['--experimental-sqlite']` 启动 Node，依赖 Node ≥ 22.5 内置的实验性 SQLite。
@@ -150,7 +148,6 @@ pnpm nx run @ai-agent/agent:prune  # 生成可独立部署的 dist（含 pnpm-lo
   - 内容块组件：`MarkdownBlock / ToolBlock / JsonBlock / ListBlock / UsageBlock / SpecGateBlock / LoadingDots`
   - 工具返回默认折叠成 `<details>` 面板，展开可查看结构化 JSON / 长文本
   - SDD 闸门卡片：4 步时间线（specify/plan/tasks/implement）、路径可点开内联预览、批准按钮点击后触发下一阶段
-- `apps/ui-astro`（Astro 5 + Vue 岛屿）：同一套 ChatView 的实验版本，静态资源走 `public/`，主题使用 shiki github 双主题。
 
 ## 常用命令
 

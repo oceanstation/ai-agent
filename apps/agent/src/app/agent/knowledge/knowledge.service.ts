@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChromaClient, type Collection, type Metadata } from 'chromadb';
+import { CloudClient, type Collection, type Metadata } from 'chromadb';
 import { BgeEmbedder } from './bge-embedder';
 import { loadKnowledgeConfig, type KnowledgeConfig } from './knowledge.config';
 
@@ -33,15 +33,15 @@ export interface QueryOptions {
  * 知识库查询服务
  *
  * - 惰性连接 Chroma：首次查询才建立连接与集合句柄，服务启动不受影响；
- * - 集合名与 apps/chroma/ingest.ts 保持一致（`cookbook`）；
- * - 依赖 Chroma 服务已经启动（`pnpm exec chroma run --path ./data`）。
+ * - 集合名与入库端约定保持一致（默认 `cookbook`，可通过 `CHROMA_COLLECTION` 覆盖）；
+ * - 依赖 Chroma Cloud 已开通并配置好 `CHROMA_API_KEY / CHROMA_TENANT / CHROMA_DATABASE`。
  */
 @Injectable()
 export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
   private readonly config: KnowledgeConfig;
 
-  private client: ChromaClient | null = null;
+  private client: CloudClient | null = null;
   private collection: Collection | null = null;
   private connecting: Promise<Collection> | null = null;
 
@@ -57,16 +57,24 @@ export class KnowledgeService {
     if (this.collection) return this.collection;
     if (!this.connecting) {
       this.connecting = (async () => {
-        this.client = new ChromaClient({
-          host: this.config.chromaHost,
-          port: this.config.chromaPort,
+        if (!this.config.chromaApiKey) {
+          throw new Error(
+            'CHROMA_API_KEY is required to connect Chroma Cloud. ' +
+              'Please set CHROMA_API_KEY in your environment.',
+          );
+        }
+        this.client = new CloudClient({
+          apiKey: this.config.chromaApiKey,
+          tenant: this.config.chromaTenant,
+          database: this.config.chromaDatabase,
         });
         const col = await this.client.getOrCreateCollection({
           name: this.config.chromaCollection,
           embeddingFunction: this.embedder,
         });
         this.logger.log(
-          `Connected to Chroma collection: ${this.config.chromaCollection}`,
+          `Connected to Chroma Cloud collection: ${this.config.chromaCollection} ` +
+            `(tenant=${this.config.chromaTenant}, database=${this.config.chromaDatabase})`,
         );
         return col;
       })().catch((err) => {

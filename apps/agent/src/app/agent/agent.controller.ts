@@ -11,6 +11,7 @@ import {
   Sse,
 } from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Observable } from 'rxjs';
 import { AgentRunService } from './agent.run.service';
 import type { ContentBlock } from './agent.blocks';
@@ -29,7 +30,28 @@ export class AgentController {
     private readonly agentRunService: AgentRunService,
     private readonly historyService: HistoryService,
     private readonly sddService: SddService,
+    private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * 服务健康 / 配置就绪状态。
+   * UI 在挂载时探测：`llmReady=false` 触发桌面模式下的"设置引导"横幅
+   * （提示用户编辑 userData/.env 填 API key），不至于要用户先发一条消息才知道没配置好。
+   *
+   * `looksReal` 会把 .env.example 里的占位符（如 `sk-xxxxxxxxxxxx`）判为"未配置" ——
+   * 避免打包 seed 出来的模板 key 让 llmReady 误报为 true。
+   */
+  @Get('health')
+  health() {
+    const looksReal = (s: string | undefined): boolean =>
+      !!s && s.trim().length > 0 && !/x{6,}/i.test(s);
+    return {
+      llmReady: looksReal(this.configService.get<string>('LLM_FAST_API_KEY')),
+      knowledgeReady: looksReal(
+        this.configService.get<string>('CHROMA_API_KEY'),
+      ),
+    };
+  }
 
   /**
    * 流式调用 Agent（SSE）—— Content Block 协议

@@ -1,6 +1,20 @@
 import axios, { AxiosError, type AxiosInstance } from 'axios';
 
-export const AGENT_BASE = '/agent';
+/**
+ * Agent API base.
+ *
+ * - Web 模式：`window.__AGENT_ORIGIN__` 未定义，退到相对路径 `/agent`，
+ *   由 Vite dev proxy（`vite.config.mts` 里的 `/agent` → `:3000`）承接；
+ *   打包部署时由反向代理承接。
+ * - Desktop 模式：Electron preload 通过 `contextBridge` 挂上
+ *   `window.__AGENT_ORIGIN__ = 'http://127.0.0.1:<os-assigned-port>'`，
+ *   前端直连内嵌 agent，绕开 Vite proxy。
+ *
+ * `agent.ts` 里的 SSE (`fetchEventSource`) 也 import 这个常量，一处切换生效。
+ */
+export const AGENT_BASE = window.__AGENT_ORIGIN__
+  ? `${window.__AGENT_ORIGIN__}/agent`
+  : '/agent';
 
 /**
  * 携带 HTTP 状态码的错误类型。

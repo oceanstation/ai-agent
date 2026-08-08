@@ -13,7 +13,7 @@
       "path": "./packages/common"
     },
     {
-      "path": "./apps/chroma"
+      "path": "./apps/desktop"
     }
   ]
 }

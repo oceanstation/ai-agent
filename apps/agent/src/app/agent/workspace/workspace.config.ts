@@ -1,6 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
-import * as path from 'node:path';
 import { parseBool, parseIntSafe, parseList } from '../utils/config-parse';
+import { resolveAgentPath } from '../../paths';
 
 /**
  * Workspace 子系统运行时配置。
@@ -62,12 +62,14 @@ const DEFAULT_DENY_GLOBS = [
 export function loadWorkspaceConfig(
   configService: ConfigService,
 ): WorkspaceConfig {
+  // 路径解析优先级（见 apps/agent/src/app/paths.ts）：
+  //   1. 显式 `WORKSPACE_ROOT`；
+  //   2. `AGENT_DATA_DIR/workspace`（Electron 等桌面壳注入 userData 时生效）；
+  //   3. 兼容旧默认：仓库根 `process.cwd()`。
   const rawRoot = configService.get<string>('WORKSPACE_ROOT');
   const root = rawRoot
-    ? path.isAbsolute(rawRoot)
-      ? rawRoot
-      : path.resolve(process.cwd(), rawRoot)
-    : process.cwd();
+    ? resolveAgentPath(rawRoot, 'workspace', process.cwd())
+    : resolveAgentPath(undefined, 'workspace', process.cwd());
 
   return {
     root,

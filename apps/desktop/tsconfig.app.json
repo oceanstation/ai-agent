@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "node16",
+    "moduleResolution": "node16",
+    "types": ["node"],
+    "rootDir": "src",
+    "target": "es2022",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "isolatedModules": false,
+    "importHelpers": false,
+    "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo",
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"]
+}

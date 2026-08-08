@@ -1,11 +1,13 @@
 import type { ConfigService } from '@nestjs/config';
-import * as path from 'node:path';
+import { resolveAgentPath } from '../../paths';
 
 /**
  * History 子系统的运行时配置。
  *
- * 单用户本地部署：默认落地到 `./apps/agent/.data/history.db`（相对仓库根 cwd）。
- * 可通过环境变量 `HISTORY_DB_PATH` 覆盖数据库文件位置。
+ * 路径解析优先级（见 apps/agent/src/app/paths.ts）：
+ *   1. 显式 `HISTORY_DB_PATH`；
+ *   2. `AGENT_DATA_DIR/.data/history.db`（Electron 等桌面壳注入 userData 时生效）；
+ *   3. 兼容旧默认：`apps/agent/.data/history.db`（相对仓库根）。
  */
 export interface HistoryConfig {
   /** SQLite 数据库文件绝对路径 */
@@ -14,7 +16,6 @@ export interface HistoryConfig {
   titleMaxLength: number;
 }
 
-const DEFAULT_DB_PATH = 'apps/agent/.data/history.db';
 const DEFAULT_TITLE_MAX_LENGTH = 40;
 
 /**
@@ -22,8 +23,11 @@ const DEFAULT_TITLE_MAX_LENGTH = 40;
  * 独立函数便于单测中直接构造。
  */
 export function loadHistoryConfig(configService: ConfigService): HistoryConfig {
-  const raw = configService.get<string>('HISTORY_DB_PATH') ?? DEFAULT_DB_PATH;
-  const dbFile = path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+  const dbFile = resolveAgentPath(
+    configService.get<string>('HISTORY_DB_PATH'),
+    '.data/history.db',
+    'apps/agent/.data/history.db',
+  );
 
   return {
     dbFile,
